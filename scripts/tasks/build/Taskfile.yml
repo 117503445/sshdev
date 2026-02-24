@@ -1,0 +1,59 @@
+version: 3
+
+tasks:
+  bin:
+    deps: [":base:clear"]
+    sources:
+      - ./cmd/**
+      - ./internal/**
+      - ./pkg/**
+      - ./.git/**
+      - ./go.mod
+      - ./go.sum
+      - ./Taskfile.yml
+      - ./scripts/script/**
+      - ./scripts/tasks/**
+    generates:
+      - ./data/cli/dev-sshd
+    cmds:
+      - mkdir -p ./data/cli
+      - go build -ldflags "-s -w" -o ./data/cli/dev-sshd ./cmd/dev-sshd
+
+  release:
+    desc: "Build release binaries for multiple platforms"
+    deps: [":base:clear"]
+    sources:
+      - ./cmd/dev-sshd/**
+      - ./internal/**
+      - ./pkg/**
+      - ./.git/**
+      - ./go.mod
+      - ./go.sum
+      - ./scripts/script/**
+      - ./scripts/tasks/**
+    generates:
+      - ./data/release/dev-sshd-*
+    cmds:
+      - |
+        mkdir -p ./data/release
+        GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "-s -w" -o ./data/release/dev-sshd-linux-amd64 ./cmd/dev-sshd
+        GOOS=darwin GOARCH=amd64 go build -ldflags "-s -w" -o ./data/release/dev-sshd-darwin-amd64 ./cmd/dev-sshd
+        GOOS=windows GOARCH=amd64 go build -ldflags "-s -w" -o ./data/release/dev-sshd-windows-amd64.exe ./cmd/dev-sshd
+
+  linux:
+    desc: "Build for Linux AMD64 (static)"
+    deps: [":base:clear"]
+    cmds:
+      - mkdir -p ./data/cli
+      - CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "-s -w" -o ./data/cli/dev-sshd-linux-amd64 ./cmd/dev-sshd
+
+  deps:
+    desc: "Download dependencies"
+    cmds:
+      - go mod download
+      - go mod tidy
+
+  docker:
+    desc: "Build docker image"
+    cmds:
+      - docker build -t dev-sshd:latest .

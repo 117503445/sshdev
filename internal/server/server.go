@@ -1,21 +1,26 @@
-package main
+package server
 
 import (
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/pem"
 	"fmt"
-	"log"
 	"net"
 	"os"
 	"sync"
 
+	"github.com/rs/zerolog/log"
 	"golang.org/x/crypto/ssh"
+
+	"github.com/117503445/dev-sshd/internal/auth"
+	"github.com/117503445/dev-sshd/internal/session"
+	"github.com/117503445/dev-sshd/internal/types"
 )
 
 // Server represents the SSH server
 type Server struct {
-	cfg      *Config
+	cfg      *types.Config
 	sshCfg   *ssh.ServerConfig
 	listener net.Listener
 	wg       sync.WaitGroup
@@ -23,20 +28,20 @@ type Server struct {
 }
 
 // NewServer creates a new SSH server
-func NewServer(cfg *Config) (*Server, error) {
+func NewServer(cfg *types.Config) (*Server, error) {
 	s := &Server{
 		cfg:  cfg,
 		quit: make(chan struct{}),
 	}
 
 	// Load or generate host key
-	hostKey, err := s.loadOrGenerateHostKey()
+	hostKey, err := s.loadOrGenerateHostKey(context.Background())
 	if err != nil {
 		return nil, fmt.Errorf("failed to load host key: %w", err)
 	}
 
 	// Create authenticator
-	auth, err := NewAuthenticator(cfg)
+	auth, err := auth.NewAuthenticator(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create authenticator: %w", err)
 	}
@@ -60,20 +65,20 @@ func NewServer(cfg *Config) (*Server, error) {
 }
 
 // loadOrGenerateHostKey loads an existing host key or generates a new one
-func (s *Server) loadOrGenerateHostKey() (ssh.Signer, error) {
+func (s *Server) loadOrGenerateHostKey(ctx context.Context) (ssh.Signer, error) {
 	// Try to load existing key
 	keyData, err := os.ReadFile(s.cfg.HostKeyPath)
 	if err == nil {
 		signer, err := ssh.ParsePrivateKey(keyData)
 		if err == nil {
-			log.Printf("[INFO] Loaded host key from %s", s.cfg.HostKeyPath)
+			log.Ctx(ctx).Info().Str("path", s.cfg.HostKeyPath).Msg("loaded host key")
 			return signer, nil
 		}
-		log.Printf("[WARN] Failed to parse host key: %v, generating new one", err)
+		log.Ctx(ctx).Warn().Err(err).Msg("failed to parse host key, generating new one")
 	}
 
 	// Generate new ED25519 key
-	log.Printf("[INFO] Generating new ED25519 host key")
+	log.Ctx(ctx).Info().Msg("generating new ED25519 host key")
 	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		return nil, err
@@ -88,9 +93,9 @@ func (s *Server) loadOrGenerateHostKey() (ssh.Signer, error) {
 
 	// Save to file
 	if err := os.WriteFile(s.cfg.HostKeyPath, keyData, 0600); err != nil {
-		log.Printf("[WARN] Failed to save host key: %v", err)
+		log.Ctx(ctx).Warn().Err(err).Msg("failed to save host key")
 	} else {
-		log.Printf("[INFO] Saved host key to %s", s.cfg.HostKeyPath)
+		log.Ctx(ctx).Info().Str("path", s.cfg.HostKeyPath).Msg("saved host key")
 	}
 
 	return ssh.NewSignerFromKey(privateKey)
@@ -177,9 +182,10 @@ func (s *Server) Start() error {
 		return fmt.Errorf("failed to listen: %w", err)
 	}
 
-	log.Printf("[INFO] SSH server listening on %s", s.cfg.ListenAddr)
-	if s.cfg.AuthMode == AuthModeNone {
-		log.Printf("[WARN] *** NO AUTHENTICATION MODE ENABLED - ANYONE CAN CONNECT ***")
+	ctx := context.Background()
+	log.Ctx(ctx).Info().Str("addr", s.cfg.ListenAddr).Msg("SSH server listening")
+	if s.cfg.AuthMode == types.AuthModeNone {
+		log.Ctx(ctx).Warn().Msg("NO AUTHENTICATION MODE ENABLED - ANYONE CAN CONNECT")
 	}
 
 	for {
@@ -189,7 +195,7 @@ func (s *Server) Start() error {
 			case <-s.quit:
 				return nil
 			default:
-				log.Printf("[ERROR] Failed to accept connection: %v", err)
+				log.Ctx(ctx).Error().Err(err).Msg("failed to accept connection")
 				continue
 			}
 		}
@@ -204,36 +210,42 @@ func (s *Server) handleConnection(conn net.Conn) {
 	defer s.wg.Done()
 	defer conn.Close()
 
-	log.Printf("[INFO] New connection from %s", conn.RemoteAddr())
+	ctx := context.Background()
+	log.Ctx(ctx).Info().Str("remote", conn.RemoteAddr().String()).Msg("new connection")
 
 	// Perform SSH handshake
 	sshConn, chans, reqs, err := ssh.NewServerConn(conn, s.sshCfg)
 	if err != nil {
-		log.Printf("[ERROR] SSH handshake failed: %v", err)
+		log.Ctx(ctx).Error().Err(err).Msg("SSH handshake failed")
 		return
 	}
 	defer sshConn.Close()
 
-	log.Printf("[INFO] SSH connection established: user=%s client=%s", sshConn.User(), sshConn.RemoteAddr())
+	newCtx := log.With().
+		Str("user", sshConn.User()).
+		Str("client", sshConn.RemoteAddr().String()).
+		Logger().WithContext(ctx)
+
+	log.Ctx(newCtx).Info().Msg("SSH connection established")
 
 	// Handle global requests
-	go s.handleGlobalRequests(reqs)
+	go s.handleGlobalRequests(newCtx, reqs)
 
 	// Handle channels
 	for newChannel := range chans {
-		s.handleChannel(newChannel, sshConn)
+		session.HandleSession(newCtx, newChannel, s.cfg)
 	}
 
-	log.Printf("[INFO] Connection closed: user=%s client=%s", sshConn.User(), sshConn.RemoteAddr())
+	log.Ctx(newCtx).Info().Msg("connection closed")
 }
 
 // handleGlobalRequests handles global SSH requests
-func (s *Server) handleGlobalRequests(reqs <-chan *ssh.Request) {
+func (s *Server) handleGlobalRequests(ctx context.Context, reqs <-chan *ssh.Request) {
 	for req := range reqs {
 		switch req.Type {
 		case "tcpip-forward":
 			// Remote port forwarding request
-			handleTcpipForwardRequest(req)
+			session.HandleTcpipForwardRequest(ctx, req)
 		case "cancel-tcpip-forward":
 			// Cancel remote port forwarding
 			if req.WantReply {
@@ -244,7 +256,7 @@ func (s *Server) handleGlobalRequests(reqs <-chan *ssh.Request) {
 				req.Reply(true, nil)
 			}
 		default:
-			log.Printf("[DEBUG] Unknown global request: %s", req.Type)
+			log.Ctx(ctx).Debug().Str("type", req.Type).Msg("unknown global request")
 			if req.WantReply {
 				req.Reply(false, nil)
 			}
@@ -253,7 +265,7 @@ func (s *Server) handleGlobalRequests(reqs <-chan *ssh.Request) {
 }
 
 // handleChannel handles a new SSH channel
-func (s *Server) handleChannel(newChannel ssh.NewChannel, conn *ssh.ServerConn) {
+func (s *Server) handleChannel(ctx context.Context, newChannel ssh.NewChannel, conn *ssh.ServerConn) {
 	channelType := newChannel.ChannelType()
 
 	switch channelType {
@@ -261,18 +273,18 @@ func (s *Server) handleChannel(newChannel ssh.NewChannel, conn *ssh.ServerConn) 
 		s.wg.Add(1)
 		go func() {
 			defer s.wg.Done()
-			handleSession(newChannel, s.cfg)
+			session.HandleSession(ctx, newChannel, s.cfg)
 		}()
 
 	case "direct-tcpip":
 		s.wg.Add(1)
 		go func() {
 			defer s.wg.Done()
-			handleDirectTcpip(newChannel)
+			session.HandleDirectTcpip(ctx, newChannel)
 		}()
 
 	default:
-		log.Printf("[WARN] Rejecting unknown channel type: %s", channelType)
+		log.Ctx(ctx).Warn().Str("type", channelType).Msg("rejecting unknown channel type")
 		newChannel.Reject(ssh.UnknownChannelType, fmt.Sprintf("unknown channel type: %s", channelType))
 	}
 }
@@ -284,5 +296,6 @@ func (s *Server) Stop() {
 		s.listener.Close()
 	}
 	s.wg.Wait()
-	log.Printf("[INFO] SSH server stopped")
+	ctx := context.Background()
+	log.Ctx(ctx).Info().Msg("SSH server stopped")
 }

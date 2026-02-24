@@ -1,0 +1,17 @@
+version: 3
+
+dotenv: [".env"]
+
+includes:
+  base:
+    taskfile: ./scripts/tasks/base
+  build:
+    taskfile: ./scripts/tasks/build
+  run:
+    taskfile: ./scripts/tasks/run
+  gen:
+    taskfile: ./scripts/tasks/gen
+  deploy:
+    taskfile: ./scripts/tasks/deploy
+  format:
+    taskfile: ./scripts/tasks/format

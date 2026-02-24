@@ -1,0 +1,7 @@
+version: 3
+
+tasks:
+  docker:
+    desc: "Deploy using Docker"
+    cmds:
+      - docker-compose up -d

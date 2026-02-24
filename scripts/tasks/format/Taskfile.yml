@@ -1,0 +1,18 @@
+version: 3
+
+tasks:
+  go:
+    desc: "Format Go code"
+    cmds:
+      - go fmt ./...
+
+  check:
+    desc: "Check code with go vet"
+    cmds:
+      - go vet ./...
+
+  all:
+    desc: "Format and check all code"
+    cmds:
+      - task: go
+      - task: check

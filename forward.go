@@ -1,12 +1,13 @@
 package main
 
 import (
+	"context"
 	"encoding/binary"
 	"io"
-	"log"
 	"net"
 	"sync"
 
+	"github.com/rs/zerolog/log"
 	"golang.org/x/crypto/ssh"
 )
 
@@ -30,21 +31,25 @@ type tcpipForwardReply struct {
 }
 
 // handleDirectTcpip handles a direct-tcpip channel (local port forwarding)
-func handleDirectTcpip(newChannel ssh.NewChannel) {
+func handleDirectTcpip(ctx context.Context, newChannel ssh.NewChannel) {
 	var msg directTcpipMsg
 	if err := ssh.Unmarshal(newChannel.ExtraData(), &msg); err != nil {
-		log.Printf("[ERROR] Failed to parse direct-tcpip: %v", err)
+		log.Ctx(ctx).Error().Err(err).Msg("failed to parse direct-tcpip")
 		newChannel.Reject(ssh.ConnectionFailed, "failed to parse direct-tcpip")
 		return
 	}
 
 	destAddr := net.JoinHostPort(msg.DestAddr, itoa(msg.DestPort))
-	log.Printf("[INFO] Direct-tcpip: %s:%d -> %s", msg.OriginAddr, msg.OriginPort, destAddr)
+	log.Ctx(ctx).Info().
+		Str("origin", msg.OriginAddr).
+		Int("origin_port", int(msg.OriginPort)).
+		Str("dest", destAddr).
+		Msg("direct-tcpip")
 
 	// Connect to destination
 	conn, err := net.Dial("tcp", destAddr)
 	if err != nil {
-		log.Printf("[ERROR] Failed to connect to %s: %v", destAddr, err)
+		log.Ctx(ctx).Error().Err(err).Str("dest", destAddr).Msg("failed to connect")
 		newChannel.Reject(ssh.ConnectionFailed, err.Error())
 		return
 	}
@@ -52,7 +57,7 @@ func handleDirectTcpip(newChannel ssh.NewChannel) {
 	// Accept the channel
 	channel, requests, err := newChannel.Accept()
 	if err != nil {
-		log.Printf("[ERROR] Failed to accept direct-tcpip channel: %v", err)
+		log.Ctx(ctx).Error().Err(err).Msg("failed to accept direct-tcpip channel")
 		conn.Close()
 		return
 	}
@@ -83,7 +88,7 @@ func handleDirectTcpip(newChannel ssh.NewChannel) {
 	conn.Close()
 	channel.Close()
 
-	log.Printf("[DEBUG] Direct-tcpip closed: %s", destAddr)
+	log.Ctx(ctx).Debug().Str("dest", destAddr).Msg("direct-tcpip closed")
 }
 
 // Remote port forwarding support
@@ -93,10 +98,10 @@ var (
 )
 
 // handleTcpipForwardRequest handles a tcpip-forward global request (remote port forwarding)
-func handleTcpipForwardRequest(req *ssh.Request) {
+func handleTcpipForwardRequest(ctx context.Context, req *ssh.Request) {
 	var msg tcpipForwardMsg
 	if err := ssh.Unmarshal(req.Payload, &msg); err != nil {
-		log.Printf("[ERROR] Failed to parse tcpip-forward: %v", err)
+		log.Ctx(ctx).Error().Err(err).Msg("failed to parse tcpip-forward")
 		if req.WantReply {
 			req.Reply(false, nil)
 		}
@@ -104,12 +109,12 @@ func handleTcpipForwardRequest(req *ssh.Request) {
 	}
 
 	bindAddr := net.JoinHostPort(msg.BindAddr, itoa(msg.BindPort))
-	log.Printf("[INFO] Remote port forward request: %s", bindAddr)
+	log.Ctx(ctx).Info().Str("addr", bindAddr).Msg("remote port forward request")
 
 	// Start listening
 	listener, err := net.Listen("tcp", bindAddr)
 	if err != nil {
-		log.Printf("[ERROR] Failed to listen on %s: %v", bindAddr, err)
+		log.Ctx(ctx).Error().Err(err).Str("addr", bindAddr).Msg("failed to listen")
 		if req.WantReply {
 			req.Reply(false, nil)
 		}
@@ -129,7 +134,7 @@ func handleTcpipForwardRequest(req *ssh.Request) {
 		req.Reply(true, ssh.Marshal(&reply))
 	}
 
-	log.Printf("[INFO] Remote port forward active: %s (port %d)", bindAddr, boundPort)
+	log.Ctx(ctx).Info().Str("addr", bindAddr).Int("port", int(boundPort)).Msg("remote port forward active")
 
 	// Note: For full implementation, we would need to accept connections
 	// and create forwarded-tcpip channels back to the client.
