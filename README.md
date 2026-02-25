@@ -1,58 +1,58 @@
 # sshdev
 
-A simple SSH server for development environments. Can be used as a CLI tool or as a Go library.
+一个简单的 SSH 服务器，适用于开发环境。可以作为 CLI 工具使用，也可以作为 Go 库使用。
 
-## As a CLI Tool
+## 作为 CLI 工具
 
-### Build
+### 编译
 ```bash
 task build:bin
-# or
+# 或者
 go build -o sshdev ./cmd/dev-sshd
 ```
 
-### Usage
+### 使用方式
 
-#### Password Authentication Mode
+#### 密码认证模式
 ```bash
 SSHD_USERNAME=vscode SSHD_PASSWORD=secret ./sshdev run
 ```
 
-#### Public Key Authentication Mode
+#### 公钥认证模式
 ```bash
 ./sshdev run --auth-mode=publickey --authorized-keys=~/.ssh/authorized_keys
 ```
 
-#### No Authentication Mode (Development Only)
+#### 无认证模式（仅开发环境）
 ```bash
 ./sshdev run --auth-mode=none
 ```
 
-#### Connect
+#### 连接服务器
 ```bash
 ssh -p 2222 user@host
 ```
 
-### Configuration
+### 配置参数
 
-| Environment Variable | Description |
-|---------------------|-------------|
-| SSHD_LISTEN         | Listen address (default: 0.0.0.0:2222) |
-| SSHD_USERNAME       | Authentication username |
-| SSHD_PASSWORD       | Authentication password |
-| SSHD_AUTH_MODE      | Authentication mode (password/publickey/none/all) |
-| SSHD_HOST_KEY       | Host key file path |
-| SSHD_SHELL          | Default shell (default: /bin/bash) |
-| SSHD_AUTHORIZED_KEYS | Authorized keys file path |
+| 环境变量 | 说明 |
+|---------|------|
+| SSHD_LISTEN | 监听地址（默认：0.0.0.0:2222） |
+| SSHD_USERNAME | 认证用户名 |
+| SSHD_PASSWORD | 认证密码 |
+| SSHD_AUTH_MODE | 认证模式（password/publickey/none/all） |
+| SSHD_HOST_KEY | Host key 文件路径 |
+| SSHD_SHELL | 默认 shell（默认：/bin/bash） |
+| SSHD_AUTHORIZED_KEYS | 授权公钥文件路径 |
 
-## As a Go Library
+## 作为 Go 库
 
-### Installation
+### 安装
 ```bash
 go get github.com/117503445/sshdev/pkg/sshlib
 ```
 
-### Usage Example
+### 使用示例
 
 ```go
 package main
@@ -80,24 +80,24 @@ func main() {
         panic(err)
     }
 
-    // To stop the server:
+    // 停止服务器：
     // server.Stop()
 }
 ```
 
-### Library API
+### 库 API
 
-#### Types
-- `AuthMode`: Authentication mode (Password, PublicKey, None, All)
-- `Config`: Server configuration
-- `Server`: Server interface with Start() and Stop() methods
+#### 类型
+- `AuthMode`: 认证模式（Password、PublicKey、None、All）
+- `Config`: 服务器配置
+- `Server`: 服务器接口，包含 Start() 和 Stop() 方法
 
-#### Functions
-- `NewServer(cfg *Config) (Server, error)`: Creates a new SSH server
-- `ParseAuthMode(s string) AuthMode`: Parses an auth mode string
-- `DefaultAuthorizedKeysPath() string`: Returns default authorized_keys path
-- `Config.Validate() error`: Validates the configuration
+#### 函数
+- `NewServer(cfg *Config) (Server, error)`: 创建新的 SSH 服务器
+- `ParseAuthMode(s string) AuthMode`: 解析认证模式字符串
+- `DefaultAuthorizedKeysPath() string`: 返回默认的 authorized_keys 路径
+- `Config.Validate() error`: 验证配置
 
-#### Errors
-- `ErrInvalidConfig`: Returned when configuration is invalid
-- `ErrAuthenticationFailed`: Returned when authentication fails
+#### 错误
+- `ErrInvalidConfig`: 配置无效时返回
+- `ErrAuthenticationFailed`: 认证失败时返回
