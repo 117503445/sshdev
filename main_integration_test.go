@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/117503445/dev-sshd/internal/server"
-	"github.com/117503445/dev-sshd/internal/types"
+	"github.com/117503445/sshdev/internal/server"
+	"github.com/117503445/sshdev/internal/types"
 	"golang.org/x/crypto/ssh"
 )
 

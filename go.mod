@@ -1,4 +1,4 @@
-module github.com/117503445/dev-sshd
+module github.com/117503445/sshdev
 
 go 1.26
 

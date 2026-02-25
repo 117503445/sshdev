@@ -10,7 +10,7 @@ import (
 	"github.com/rs/zerolog/log"
 	"golang.org/x/crypto/ssh"
 
-	"github.com/117503445/dev-sshd/internal/types"
+	"github.com/117503445/sshdev/internal/types"
 )
 
 // Authenticator handles SSH authentication

@@ -13,9 +13,9 @@ import (
 // TestCLIBasicFunctionality tests the basic CLI functionality
 func TestCLIBasicFunctionality(t *testing.T) {
 	// Find the binary
-	binaryPath := "./data/cli/dev-sshd-linux-amd64"
+	binaryPath := "./data/cli/sshdev-linux-amd64"
 	if _, err := os.Stat(binaryPath); os.IsNotExist(err) {
-		binaryPath = "./data/cli/dev-sshd"
+		binaryPath = "./data/cli/sshdev"
 	}
 	if _, err := os.Stat(binaryPath); os.IsNotExist(err) {
 		t.Skip("Skipping CLI test - binary not found")
@@ -42,9 +42,9 @@ func TestCLIBasicFunctionality(t *testing.T) {
 // TestCLIRunWithNoAuthMode tests running the server with no auth mode
 func TestCLIRunWithNoAuthMode(t *testing.T) {
 	// Find the binary
-	binaryPath := "./data/cli/dev-sshd-linux-amd64"
+	binaryPath := "./data/cli/sshdev-linux-amd64"
 	if _, err := os.Stat(binaryPath); os.IsNotExist(err) {
-		binaryPath = "./data/cli/dev-sshd"
+		binaryPath = "./data/cli/sshdev"
 	}
 	if _, err := os.Stat(binaryPath); os.IsNotExist(err) {
 		t.Skip("Skipping CLI test - binary not found")
