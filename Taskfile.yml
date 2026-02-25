@@ -15,3 +15,5 @@ includes:
     taskfile: ./scripts/tasks/deploy
   format:
     taskfile: ./scripts/tasks/format
+  test:
+    taskfile: ./scripts/tasks/test

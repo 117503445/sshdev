@@ -1,0 +1,33 @@
+version: 3
+
+tasks:
+  unit:
+    desc: "Run unit tests"
+    cmds:
+      - go test ./internal/... -v -timeout 60s
+
+  integration:
+    desc: "Run integration tests"
+    cmds:
+      - go test -v -run "TestSSHServer|TestConfigValidation|TestCLI" -timeout 120s
+
+  all:
+    desc: "Run all tests"
+    cmds:
+      - go test ./... -v -timeout 120s
+
+  short:
+    desc: "Run short tests"
+    cmds:
+      - go test ./... -short -timeout 30s
+
+  coverage:
+    desc: "Run tests with coverage"
+    cmds:
+      - go test ./... -coverprofile=coverage.out -timeout 120s
+      - go tool cover -html=coverage.out -o coverage.html
+
+  race:
+    desc: "Run tests with race detection"
+    cmds:
+      - go test ./... -race -timeout 120s

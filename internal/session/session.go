@@ -203,44 +203,94 @@ func handleExecReq(ctx context.Context, req *ssh.Request, channel ssh.Channel, s
 
 	state.mu.Lock()
 
-	if state.pty != nil {
-		// Use existing PTY if available
-		ptmx := state.pty
-		go func() {
-			io.Copy(channel, ptmx)
-			ptmx.Close()
-		}()
+	// Start command without PTY for exec requests
+	cmd := exec.Command(cfg.Shell, "-c", msg.Command)
+	cmd.Env = state.env
 
-		go func() {
-			io.Copy(ptmx, channel)
-			ptmx.Close()
-		}()
-	} else {
-		// Start command with new PTY
-		cmd := exec.Command("/bin/sh", "-c", msg.Command)
-		cmd.Env = state.env
+	stdoutPipe, err := cmd.StdoutPipe()
+	if err != nil {
+		log.Ctx(ctx).Error().Err(err).Msg("failed to create stdout pipe")
+		req.Reply(false, nil)
+		state.mu.Unlock()
+		return
+	}
 
-		ptmx, err := pty.Start(cmd)
-		if err != nil {
-			log.Ctx(ctx).Error().Err(err).Msg("failed to start command with PTY")
-			req.Reply(false, nil)
-			state.mu.Unlock()
-			return
-		}
+	stderrPipe, err := cmd.StderrPipe()
+	if err != nil {
+		log.Ctx(ctx).Error().Err(err).Msg("failed to create stderr pipe")
+		req.Reply(false, nil)
+		state.mu.Unlock()
+		return
+	}
 
-		go func() {
-			io.Copy(channel, ptmx)
-			ptmx.Close()
-		}()
+	stdinPipe, err := cmd.StdinPipe()
+	if err != nil {
+		log.Ctx(ctx).Error().Err(err).Msg("failed to create stdin pipe")
+		req.Reply(false, nil)
+		state.mu.Unlock()
+		return
+	}
 
-		go func() {
-			io.Copy(ptmx, channel)
-			ptmx.Close()
-		}()
+	if err := cmd.Start(); err != nil {
+		log.Ctx(ctx).Error().Err(err).Msg("failed to start command")
+		req.Reply(false, nil)
+		state.mu.Unlock()
+		return
 	}
 
 	state.mu.Unlock()
 	req.Reply(true, nil)
+
+	// Use sync.WaitGroup to wait for all copy operations
+	var wg sync.WaitGroup
+
+	// Copy stdin from channel to command
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		io.Copy(stdinPipe, channel)
+		stdinPipe.Close()
+	}()
+
+	// Copy stdout to channel
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		io.Copy(channel, stdoutPipe)
+	}()
+
+	// Copy stderr to channel (as extended data)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		io.Copy(channel, stderrPipe)
+	}()
+
+	// Wait for copy operations to complete
+	wg.Wait()
+
+	// Wait for command to complete
+	err = cmd.Wait()
+
+	// Send exit status
+	var exitStatus uint32
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			exitStatus = uint32(exitErr.ExitCode())
+		} else {
+			exitStatus = 1
+		}
+	} else {
+		exitStatus = 0
+	}
+
+	// Send exit-status request to channel
+	_, _ = channel.SendRequest("exit-status", false, ssh.Marshal(struct {
+		ExitStatus uint32
+	}{exitStatus}))
+
+	channel.Close()
+	log.Ctx(ctx).Debug().Uint32("exit_status", exitStatus).Msg("exec completed")
 }
 
 // handleSubsystemReq handles a subsystem request

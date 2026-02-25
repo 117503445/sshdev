@@ -58,6 +58,7 @@ func NewServer(cfg *types.Config) (*Server, error) {
 		s.sshCfg.PublicKeyCallback = cb
 	}
 	if cb := auth.NoClientAuthCallback(); cb != nil {
+		s.sshCfg.NoClientAuth = true
 		s.sshCfg.NoClientAuthCallback = cb
 	}
 

@@ -1,12 +1,9 @@
-#!/usr/bin/env go
-
 package main
 
 import (
 	"fmt"
 	"os"
 	"os/exec"
-	"runtime"
 	"strings"
 )
 
