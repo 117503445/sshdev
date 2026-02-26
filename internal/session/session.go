@@ -416,77 +416,44 @@ func HandleDirectTcpip(ctx context.Context, newChannel ssh.NewChannel) {
 		newChannel.Reject(ssh.ConnectionFailed, "connect error")
 		return
 	}
-	defer conn.Close()
 
 	// Accept the channel
 	channel, requests, err := newChannel.Accept()
 	if err != nil {
+		conn.Close()
 		log.Ctx(ctx).Error().Err(err).Msg("failed to accept direct-tcpip channel")
 		return
 	}
-	defer channel.Close()
 
 	// Handle requests on the channel
-	go func() {
-		for req := range requests {
-			log.Ctx(ctx).Debug().Str("type", req.Type).Msg("direct-tcpip request")
-			if req.WantReply {
-				req.Reply(false, nil)
-			}
-		}
-	}()
+	go ssh.DiscardRequests(requests)
 
-	// Copy data between connections
+	// Copy data between connections - when either direction completes, close both
+	done := make(chan struct{}, 2)
+
+	// Remote to local (destination -> channel)
 	go func() {
 		io.Copy(channel, conn)
 		channel.CloseWrite()
+		done <- struct{}{}
 	}()
+
+	// Local to remote (channel -> destination)
 	go func() {
 		io.Copy(conn, channel)
-		conn.Close()
+		if tcpConn, ok := conn.(*net.TCPConn); ok {
+			tcpConn.CloseWrite()
+		}
+		done <- struct{}{}
 	}()
 
+	// Wait for both directions to complete
+	<-done
+	<-done
+
+	// Close both connections
+	channel.Close()
+	conn.Close()
+
 	log.Ctx(ctx).Debug().Str("dest", destAddr).Msg("direct-tcpip closed")
-}
-
-// HandleTcpipForwardRequest handles TCP/IP forwarding requests
-func HandleTcpipForwardRequest(ctx context.Context, req *ssh.Request) {
-	var msg struct {
-		BindAddr string
-		BindPort uint32
-	}
-	if err := ssh.Unmarshal(req.Payload, &msg); err != nil {
-		log.Ctx(ctx).Error().Err(err).Msg("failed to parse tcpip-forward")
-		req.Reply(false, nil)
-		return
-	}
-
-	bindAddr := fmt.Sprintf("%s:%d", msg.BindAddr, msg.BindPort)
-	log.Ctx(ctx).Info().Str("addr", bindAddr).Msg("remote port forward request")
-
-	// This is just acknowledging the request, actual implementation would require
-	// setting up a listener to forward to remote client
-	listener, err := net.Listen("tcp", bindAddr)
-	if err != nil {
-		log.Ctx(ctx).Error().Err(err).Str("addr", bindAddr).Msg("failed to listen")
-		req.Reply(false, nil)
-		return
-	}
-	defer listener.Close()
-
-	// Reply with the bound port
-	var boundPort uint32
-	if msg.BindPort == 0 { // Dynamic port assignment
-		addr := listener.Addr().(*net.TCPAddr)
-		boundPort = uint32(addr.Port)
-	} else {
-		boundPort = msg.BindPort
-	}
-
-	reply := struct {
-		Port uint32
-	}{boundPort}
-
-	log.Ctx(ctx).Info().Str("addr", bindAddr).Uint32("port", boundPort).Msg("remote port forward active")
-	req.Reply(true, ssh.Marshal(reply))
 }

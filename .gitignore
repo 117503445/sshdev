@@ -32,7 +32,7 @@ go.work.sum
 # .vscode/
 
 p.md
-dev-sshd
+/dev-sshd
 host_key
 data
 .task

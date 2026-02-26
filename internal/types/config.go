@@ -33,13 +33,15 @@ func (m AuthMode) String() string {
 
 // Config holds the server configuration
 type Config struct {
-	ListenAddr     string
-	HostKeyPath    string
-	AuthMode       AuthMode
-	Username       string
-	Password       string
-	AuthorizedKeys string
-	Shell          string
+	ListenAddr           string
+	HostKeyPath          string
+	AuthMode             AuthMode
+	Username             string
+	Password             string
+	AuthorizedKeys       string
+	Shell                string
+	DisablePortForward   bool // Disable local port forwarding (direct-tcpip), default: enabled
+	DisableRemoteForward bool // Disable remote port forwarding (tcpip-forward), default: enabled
 }
 
 // Validate validates the configuration

@@ -17,13 +17,15 @@ type internalServer struct {
 // newServer creates a new server with internal implementation
 func newServer(cfg *Config) (Server, error) {
 	internalCfg := &types.Config{
-		ListenAddr:     cfg.ListenAddr,
-		HostKeyPath:    cfg.HostKeyPath,
-		AuthMode:       types.AuthMode(cfg.AuthMode),
-		Username:       cfg.Username,
-		Password:       cfg.Password,
-		AuthorizedKeys: cfg.AuthorizedKeys,
-		Shell:          cfg.Shell,
+		ListenAddr:           cfg.ListenAddr,
+		HostKeyPath:          cfg.HostKeyPath,
+		AuthMode:             types.AuthMode(cfg.AuthMode),
+		Username:             cfg.Username,
+		Password:             cfg.Password,
+		AuthorizedKeys:       cfg.AuthorizedKeys,
+		Shell:                cfg.Shell,
+		DisablePortForward:   cfg.DisablePortForward,
+		DisableRemoteForward: cfg.DisableRemoteForward,
 	}
 
 	s, err := server.NewServer(internalCfg)

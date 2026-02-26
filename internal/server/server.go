@@ -229,29 +229,38 @@ func (s *Server) handleConnection(conn net.Conn) {
 
 	log.Ctx(newCtx).Info().Msg("SSH connection established")
 
+	// Create forward manager for remote port forwarding
+	forwardMgr := session.NewForwardManager(sshConn)
+	defer forwardMgr.Close()
+
 	// Handle global requests
-	go s.handleGlobalRequests(newCtx, reqs)
+	go s.handleGlobalRequests(newCtx, reqs, forwardMgr)
 
 	// Handle channels
 	for newChannel := range chans {
-		session.HandleSession(newCtx, newChannel, s.cfg)
+		s.handleChannel(newCtx, newChannel, sshConn)
 	}
 
 	log.Ctx(newCtx).Info().Msg("connection closed")
 }
 
 // handleGlobalRequests handles global SSH requests
-func (s *Server) handleGlobalRequests(ctx context.Context, reqs <-chan *ssh.Request) {
+func (s *Server) handleGlobalRequests(ctx context.Context, reqs <-chan *ssh.Request, forwardMgr *session.ForwardManager) {
 	for req := range reqs {
 		switch req.Type {
 		case "tcpip-forward":
 			// Remote port forwarding request
-			session.HandleTcpipForwardRequest(ctx, req)
+			if s.cfg.DisableRemoteForward {
+				log.Ctx(ctx).Warn().Msg("remote port forwarding not allowed")
+				if req.WantReply {
+					req.Reply(false, nil)
+				}
+				continue
+			}
+			forwardMgr.HandleTcpipForward(ctx, req)
 		case "cancel-tcpip-forward":
 			// Cancel remote port forwarding
-			if req.WantReply {
-				req.Reply(true, nil)
-			}
+			forwardMgr.CancelForward(ctx, req)
 		case "keepalive@openssh.com":
 			if req.WantReply {
 				req.Reply(true, nil)
@@ -278,6 +287,12 @@ func (s *Server) handleChannel(ctx context.Context, newChannel ssh.NewChannel, c
 		}()
 
 	case "direct-tcpip":
+		// Local port forwarding
+		if s.cfg.DisablePortForward {
+			log.Ctx(ctx).Warn().Msg("local port forwarding not allowed")
+			newChannel.Reject(ssh.Prohibited, "port forwarding not allowed")
+			return
+		}
 		s.wg.Add(1)
 		go func() {
 			defer s.wg.Done()
