@@ -143,7 +143,7 @@ func marshalED25519PrivateKey(key ed25519.PrivateKey) []byte {
 	// Private key (ed25519 private key is seed + public key)
 	privSection = appendBytes(privSection, key)
 	// Comment
-	privSection = appendString(privSection, "dev-sshd")
+	privSection = appendString(privSection, "sshdev")
 
 	// Padding
 	for i := 1; len(privSection)%8 != 0; i++ {

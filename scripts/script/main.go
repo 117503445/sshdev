@@ -30,9 +30,9 @@ func main() {
 }
 
 func build() {
-	fmt.Println("Building dev-sshd...")
+	fmt.Println("Building sshdev...")
 
-	cmd := exec.Command("go", "build", "-ldflags", "-s -w", "-o", "./data/cli/dev-sshd", "./cmd/dev-sshd")
+	cmd := exec.Command("go", "build", "-ldflags", "-s -w", "-o", "./data/cli/sshdev", "./cmd/sshdev")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
@@ -60,7 +60,7 @@ func release() {
 		goos := parts[0]
 		goarch := parts[1]
 
-		binaryName := fmt.Sprintf("./data/release/dev-sshd-%s-%s", goos, goarch)
+		binaryName := fmt.Sprintf("./data/release/sshdev-%s-%s", goos, goarch)
 		if goos == "windows" {
 			binaryName += ".exe"
 		}
@@ -76,7 +76,7 @@ func release() {
 			env = append(env, "CGO_ENABLED=0")
 		}
 
-		cmd := exec.Command("go", "build", "-ldflags", "-s -w", "-o", binaryName, "./cmd/dev-sshd")
+		cmd := exec.Command("go", "build", "-ldflags", "-s -w", "-o", binaryName, "./cmd/sshdev")
 		cmd.Env = env
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
@@ -94,7 +94,7 @@ func release() {
 func buildDocker() {
 	fmt.Println("Building Docker image...")
 
-	cmd := exec.Command("docker", "build", "-t", "dev-sshd:latest", ".")
+	cmd := exec.Command("docker", "build", "-t", "sshdev:latest", ".")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 

@@ -4,7 +4,7 @@ WORKDIR /app
 COPY . .
 RUN go mod download
 
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -ldflags "-s -w" -o dev-sshd ./cmd/dev-sshd
+RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -ldflags "-s -w" -o sshdev ./cmd/sshdev
 
 FROM alpine:latest
 RUN apk --no-cache add ca-certificates
@@ -14,9 +14,9 @@ USER nonroot:nonroot
 
 WORKDIR /
 
-COPY --from=builder /app/dev-sshd .
+COPY --from=builder /app/sshdev .
 
 EXPOSE 2222
 
-ENTRYPOINT ["./dev-sshd"]
+ENTRYPOINT ["./sshdev"]
 CMD ["run"]

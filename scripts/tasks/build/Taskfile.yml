@@ -17,13 +17,13 @@ tasks:
       - ./data/cli/sshdev
     cmds:
       - mkdir -p ./data/cli
-      - go build -ldflags "-s -w" -o ./data/cli/sshdev ./cmd/dev-sshd
+      - go build -ldflags "-s -w" -o ./data/cli/sshdev ./cmd/sshdev
 
   release:
     desc: "Build release binaries for multiple platforms"
     deps: [":base:clear"]
     sources:
-      - ./cmd/dev-sshd/**
+      - ./cmd/sshdev/**
       - ./internal/**
       - ./pkg/**
       - ./.git/**
@@ -36,18 +36,18 @@ tasks:
     cmds:
       - |
         mkdir -p ./data/release
-        GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "-s -w" -o ./data/release/sshdev-linux-amd64 ./cmd/dev-sshd
-        GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -ldflags "-s -w" -o ./data/release/sshdev-linux-arm64 ./cmd/dev-sshd
-        GOOS=darwin GOARCH=amd64 go build -ldflags "-s -w" -o ./data/release/sshdev-darwin-amd64 ./cmd/dev-sshd
-        GOOS=darwin GOARCH=arm64 go build -ldflags "-s -w" -o ./data/release/sshdev-darwin-arm64 ./cmd/dev-sshd
-        GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "-s -w" -o ./data/release/sshdev-windows-amd64.exe ./cmd/dev-sshd
+        GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "-s -w" -o ./data/release/sshdev-linux-amd64 ./cmd/sshdev
+        GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -ldflags "-s -w" -o ./data/release/sshdev-linux-arm64 ./cmd/sshdev
+        GOOS=darwin GOARCH=amd64 go build -ldflags "-s -w" -o ./data/release/sshdev-darwin-amd64 ./cmd/sshdev
+        GOOS=darwin GOARCH=arm64 go build -ldflags "-s -w" -o ./data/release/sshdev-darwin-arm64 ./cmd/sshdev
+        GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "-s -w" -o ./data/release/sshdev-windows-amd64.exe ./cmd/sshdev
 
   linux:
     desc: "Build for Linux AMD64 (static)"
     deps: [":base:clear"]
     cmds:
       - mkdir -p ./data/cli
-      - CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "-s -w" -o ./data/cli/sshdev ./cmd/dev-sshd
+      - CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "-s -w" -o ./data/cli/sshdev ./cmd/sshdev
 
   deps:
     desc: "Download dependencies"

@@ -1,8 +1,13 @@
+//go:build !windows
+// +build !windows
+
 package utils
 
-import "syscall"
+import (
+	"syscall"
+)
 
-// GetSignalByName returns the syscall.Signal for a given signal name
+// GetSignalByName returns the syscall.Signal for a given signal name (Unix)
 func GetSignalByName(name string) syscall.Signal {
 	switch name {
 	case "SIGINT":
@@ -20,7 +25,7 @@ func GetSignalByName(name string) syscall.Signal {
 	case "SIGUSR2":
 		return syscall.SIGUSR2
 	default:
-		return syscall.Signal(0) // Invalid signal
+		return syscall.Signal(0)
 	}
 }
 

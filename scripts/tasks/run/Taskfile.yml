@@ -6,16 +6,16 @@ tasks:
     deps: [":build:bin"]
     cmds:
       - |
-        SSHD_USERNAME=test SSHD_PASSWORD=test ./data/cli/dev-sshd run --listen=":2222" --host-key="./host_key" --auth-mode="password"
+        SSHD_USERNAME=test SSHD_PASSWORD=test ./data/cli/sshdev run --listen=":2222" --host-key="./host_key" --auth-mode="password"
 
   noauth:
     desc: "Run with no auth (for testing)"
     deps: [":build:bin"]
     cmds:
-      - ./data/cli/dev-sshd run --auth-mode="none"
+      - ./data/cli/sshdev run --auth-mode="none"
 
   local:
     desc: "Run with local configuration"
     deps: [":build:bin"]
     cmds:
-      - ./data/cli/dev-sshd run
+      - ./data/cli/sshdev run
