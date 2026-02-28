@@ -205,6 +205,134 @@ func TestDefaultAuthorizedKeysPath(t *testing.T) {
 	}
 }
 
+// TestShellExitDisconnect tests that the connection is closed immediately after exit command
+func TestShellExitDisconnect(t *testing.T) {
+	// Create a temporary host key file
+	hostKeyPath := "/tmp/test_exit_host_key"
+	defer os.Remove(hostKeyPath)
+
+	// Find a free port to use
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Failed to create listener: %v", err)
+	}
+	port := listener.Addr().(*net.TCPAddr).Port
+	listener.Close()
+
+	cfg := &sshlib.Config{
+		ListenAddr:  fmt.Sprintf("127.0.0.1:%d", port),
+		HostKeyPath: hostKeyPath,
+		AuthMode:    sshlib.AuthModeNone,
+		Shell:       "/bin/sh",
+	}
+
+	srv, err := sshlib.NewServer(cfg)
+	if err != nil {
+		t.Fatalf("Failed to create server: %v", err)
+	}
+
+	done := make(chan bool)
+	go func() {
+		if err := srv.Start(); err != nil {
+			t.Errorf("Server failed to start: %v", err)
+		}
+		done <- true
+	}()
+
+	time.Sleep(500 * time.Millisecond)
+
+	defer func() {
+		srv.Stop()
+		<-done
+	}()
+
+	// Connect and start an interactive shell session
+	config := &ssh.ClientConfig{
+		User:            "",
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		Timeout:         10 * time.Second,
+	}
+
+	addr := fmt.Sprintf("127.0.0.1:%d", port)
+	conn, err := net.DialTimeout("tcp", addr, 10*time.Second)
+	if err != nil {
+		t.Fatalf("Failed to dial: %v", err)
+	}
+
+	c, chans, reqs, err := ssh.NewClientConn(conn, addr, config)
+	if err != nil {
+		t.Fatalf("Failed to connect: %v", err)
+	}
+
+	client := ssh.NewClient(c, chans, reqs)
+
+	// Create a session with PTY (simulating interactive shell)
+	session, err := client.NewSession()
+	if err != nil {
+		t.Fatalf("Failed to create session: %v", err)
+	}
+
+	// Set up PTY
+	modes := ssh.TerminalModes{
+		ssh.ECHO:          1,
+		ssh.TTY_OP_ISPEED: 14400,
+		ssh.TTY_OP_OSPEED: 14400,
+	}
+	if err := session.RequestPty("xterm", 80, 40, modes); err != nil {
+		t.Fatalf("Failed to request PTY: %v", err)
+	}
+
+	// Start shell
+	stdin, err := session.StdinPipe()
+	if err != nil {
+		t.Fatalf("Failed to get stdin: %v", err)
+	}
+
+	stdout, err := session.StdoutPipe()
+	if err != nil {
+		t.Fatalf("Failed to get stdout: %v", err)
+	}
+
+	if err := session.Shell(); err != nil {
+		t.Fatalf("Failed to start shell: %v", err)
+	}
+
+	// Give shell time to start
+	time.Sleep(100 * time.Millisecond)
+
+	// Send exit command
+	_, err = stdin.Write([]byte("exit\n"))
+	if err != nil {
+		t.Fatalf("Failed to write exit command: %v", err)
+	}
+	stdin.Close()
+
+	// Wait for session to close - should happen quickly after exit
+	// If connection doesn't close properly, this will timeout
+	sessionClosed := make(chan error, 1)
+	go func() {
+		// Read until EOF (connection closed)
+		buf := make([]byte, 1024)
+		for {
+			_, err := stdout.Read(buf)
+			if err != nil {
+				sessionClosed <- err
+				return
+			}
+		}
+	}()
+
+	select {
+	case <-sessionClosed:
+		// Connection closed as expected
+	case <-time.After(3 * time.Second):
+		t.Fatalf("Timeout waiting for connection to close after exit command")
+	}
+
+	session.Close()
+	client.Close()
+}
+
 // TestNewServerWithInvalidConfig tests creating server with invalid config
 func TestNewServerWithInvalidConfig(t *testing.T) {
 	tests := []struct {

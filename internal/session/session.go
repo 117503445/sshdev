@@ -11,12 +11,18 @@ import (
 	"sync"
 
 	"github.com/creack/pty"
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"golang.org/x/crypto/ssh"
 
 	"github.com/117503445/sshdev/internal/types"
 	"github.com/117503445/sshdev/internal/utils"
 )
+
+func init() {
+	// Set log level to debug for testing
+	zerolog.SetGlobalLevel(zerolog.DebugLevel)
+}
 
 // sessionState holds the state for an SSH session
 type sessionState struct {
@@ -50,24 +56,41 @@ type subsystemMsg struct {
 
 // HandleSession handles a session channel
 func HandleSession(ctx context.Context, newChannel ssh.NewChannel, cfg *types.Config) {
+	log.Ctx(ctx).Info().Msg("[DEBUG] HandleSession: starting")
+
 	channel, requests, err := newChannel.Accept()
 	if err != nil {
 		log.Ctx(ctx).Error().Err(err).Msg("failed to accept session channel")
 		return
 	}
-	defer channel.Close()
+	log.Ctx(ctx).Info().Msg("[DEBUG] HandleSession: channel accepted")
+
+	defer func() {
+		log.Ctx(ctx).Info().Msg("[DEBUG] HandleSession: closing channel (defer)")
+		channel.Close()
+		log.Ctx(ctx).Info().Msg("[DEBUG] HandleSession: channel closed (defer)")
+	}()
 
 	state := &sessionState{
 		env:   os.Environ(),
 		winCh: make(chan windowChangeMsg, 1),
 	}
 
+	log.Ctx(ctx).Info().Msg("[DEBUG] HandleSession: entering request loop")
+
 	// Handle requests
 	for req := range requests {
+		log.Ctx(ctx).Info().
+			Str("type", req.Type).
+			Bool("want_reply", req.WantReply).
+			Msg("[DEBUG] HandleSession: received request")
+
 		ctxWithReq := log.Ctx(ctx).With().
 			Str("request_type", req.Type).
 			Bool("want_reply", req.WantReply).
 			Logger().WithContext(ctx)
+
+		var shouldExit bool
 
 		switch req.Type {
 		case "pty-req":
@@ -77,11 +100,11 @@ func HandleSession(ctx context.Context, newChannel ssh.NewChannel, cfg *types.Co
 		case "env":
 			handleEnvReq(ctxWithReq, req, state)
 		case "shell":
-			handleShellReq(ctxWithReq, req, channel, state, cfg)
+			shouldExit = handleShellReq(ctxWithReq, req, channel, state, cfg)
 		case "exec":
-			handleExecReq(ctxWithReq, req, channel, state, cfg)
+			shouldExit = handleExecReq(ctxWithReq, req, channel, state, cfg)
 		case "subsystem":
-			handleSubsystemReq(ctxWithReq, req, channel, state, cfg)
+			shouldExit = handleSubsystemReq(ctxWithReq, req, channel, state, cfg)
 		case "window-change":
 			handleWindowChangeReq(ctxWithReq, req, state)
 		case "signal":
@@ -92,11 +115,25 @@ func HandleSession(ctx context.Context, newChannel ssh.NewChannel, cfg *types.Co
 				req.Reply(false, nil)
 			}
 		}
+
+		log.Ctx(ctx).Info().
+			Bool("shouldExit", shouldExit).
+			Msg("[DEBUG] HandleSession: request processed")
+
+		// Exit the loop after shell/exec/subsystem completes
+		if shouldExit {
+			log.Ctx(ctx).Info().Msg("[DEBUG] HandleSession: breaking loop (shouldExit=true)")
+			break
+		}
 	}
+
+	log.Ctx(ctx).Info().Msg("[DEBUG] HandleSession: exited request loop, returning")
 }
 
 // handlePtyReq handles a pty request
 func handlePtyReq(ctx context.Context, req *ssh.Request, state *sessionState, cfg *types.Config) {
+	log.Ctx(ctx).Info().Msg("[DEBUG] handlePtyReq: starting")
+
 	var msg ptyReqMsg
 	if err := ssh.Unmarshal(req.Payload, &msg); err != nil {
 		log.Ctx(ctx).Error().Err(err).Msg("failed to parse pty-req")
@@ -104,25 +141,26 @@ func handlePtyReq(ctx context.Context, req *ssh.Request, state *sessionState, cf
 		return
 	}
 
-	log.Ctx(ctx).Debug().
+	log.Ctx(ctx).Info().
 		Str("term", msg.Term).
 		Int("cols", int(msg.Columns)).
 		Int("rows", int(msg.Rows)).
-		Msg("pty request")
+		Msg("[DEBUG] handlePtyReq: pty request parsed")
 
-	// Store pty request info in session state
-	// The actual pty will be set up when shell/exec is requested
 	req.Reply(true, nil)
+	log.Ctx(ctx).Info().Msg("[DEBUG] handlePtyReq: replied true")
 }
 
 // handleX11Req handles an X11 forwarding request
 func handleX11Req(ctx context.Context, req *ssh.Request) {
-	log.Ctx(ctx).Debug().Msg("x11 request")
+	log.Ctx(ctx).Info().Msg("[DEBUG] handleX11Req: starting")
 	req.Reply(true, nil)
 }
 
 // handleEnvReq handles an environment request
 func handleEnvReq(ctx context.Context, req *ssh.Request, state *sessionState) {
+	log.Ctx(ctx).Info().Msg("[DEBUG] handleEnvReq: starting")
+
 	var msg struct {
 		Name  string
 		Value string
@@ -133,9 +171,8 @@ func handleEnvReq(ctx context.Context, req *ssh.Request, state *sessionState) {
 		return
 	}
 
-	log.Ctx(ctx).Debug().Str("name", msg.Name).Str("value", msg.Value).Msg("env set")
+	log.Ctx(ctx).Info().Str("name", msg.Name).Str("value", msg.Value).Msg("[DEBUG] handleEnvReq: env parsed")
 
-	// Add to environment
 	envVar := fmt.Sprintf("%s=%s", msg.Name, msg.Value)
 	state.mu.Lock()
 	state.env = append(state.env, envVar)
@@ -145,25 +182,44 @@ func handleEnvReq(ctx context.Context, req *ssh.Request, state *sessionState) {
 }
 
 // handleShellReq handles a shell request
-func handleShellReq(ctx context.Context, req *ssh.Request, channel ssh.Channel, state *sessionState, cfg *types.Config) {
-	log.Ctx(ctx).Debug().Msg("shell request")
+func handleShellReq(ctx context.Context, req *ssh.Request, channel ssh.Channel, state *sessionState, cfg *types.Config) bool {
+	log.Ctx(ctx).Info().Msg("[DEBUG] handleShellReq: starting")
 
 	state.mu.Lock()
+	log.Ctx(ctx).Info().Msg("[DEBUG] handleShellReq: mutex locked")
 
 	if state.pty != nil {
-		// Use existing PTY if available
+		log.Ctx(ctx).Info().Msg("[DEBUG] handleShellReq: using existing PTY")
 		ptmx := state.pty
+		state.mu.Unlock()
+		req.Reply(true, nil)
+
+		var wg sync.WaitGroup
+		wg.Add(2)
+
 		go func() {
+			defer wg.Done()
+			log.Ctx(ctx).Info().Msg("[DEBUG] handleShellReq: starting io.Copy channel <- ptmx")
 			io.Copy(channel, ptmx)
-			ptmx.Close()
+			log.Ctx(ctx).Info().Msg("[DEBUG] handleShellReq: io.Copy channel <- ptmx done")
 		}()
 
 		go func() {
+			defer wg.Done()
+			log.Ctx(ctx).Info().Msg("[DEBUG] handleShellReq: starting io.Copy ptmx <- channel")
 			io.Copy(ptmx, channel)
-			ptmx.Close()
+			log.Ctx(ctx).Info().Msg("[DEBUG] handleShellReq: io.Copy ptmx <- channel done")
 		}()
+
+		log.Ctx(ctx).Info().Msg("[DEBUG] handleShellReq: waiting for copy operations")
+		wg.Wait()
+		log.Ctx(ctx).Info().Msg("[DEBUG] handleShellReq: copy operations done")
+
+		ptmx.Close()
+		log.Ctx(ctx).Info().Msg("[DEBUG] handleShellReq: ptmx closed")
 	} else {
-		// Start shell with new PTY
+		log.Ctx(ctx).Info().Str("shell", cfg.Shell).Msg("[DEBUG] handleShellReq: starting new PTY")
+
 		cmd := exec.Command(cfg.Shell)
 		cmd.Env = state.env
 
@@ -172,38 +228,91 @@ func handleShellReq(ctx context.Context, req *ssh.Request, channel ssh.Channel, 
 			log.Ctx(ctx).Error().Err(err).Msg("failed to start shell with PTY")
 			req.Reply(false, nil)
 			state.mu.Unlock()
-			return
+			return true
+		}
+		log.Ctx(ctx).Info().Msg("[DEBUG] handleShellReq: PTY started")
+
+		state.mu.Unlock()
+		req.Reply(true, nil)
+		log.Ctx(ctx).Info().Msg("[DEBUG] handleShellReq: replied true")
+
+		// Use a done channel to signal when one direction finishes
+		done := make(chan struct{}, 2)
+
+		// Copy from PTY to channel (read shell output)
+		go func() {
+			log.Ctx(ctx).Info().Msg("[DEBUG] handleShellReq: starting io.Copy channel <- ptmx (read from PTY)")
+			n, err := io.Copy(channel, ptmx)
+			log.Ctx(ctx).Info().
+				Int64("bytes", n).
+				Err(err).
+				Msg("[DEBUG] handleShellReq: io.Copy channel <- ptmx done")
+			done <- struct{}{}
+		}()
+
+		// Copy from channel to PTY (write user input)
+		go func() {
+			log.Ctx(ctx).Info().Msg("[DEBUG] handleShellReq: starting io.Copy ptmx <- channel (write to PTY)")
+			n, err := io.Copy(ptmx, channel)
+			log.Ctx(ctx).Info().
+				Int64("bytes", n).
+				Err(err).
+				Msg("[DEBUG] handleShellReq: io.Copy ptmx <- channel done")
+			done <- struct{}{}
+		}()
+
+		log.Ctx(ctx).Info().Msg("[DEBUG] handleShellReq: waiting for first copy operation to finish")
+
+		// Wait for the first copy operation to finish (usually PTY output ends when shell exits)
+		<-done
+		log.Ctx(ctx).Info().Msg("[DEBUG] handleShellReq: first copy operation done, closing both ptmx and channel")
+
+		// Close ptmx to unblock the other copy operation
+		ptmx.Close()
+
+		// Close channel to stop the other io.Copy and notify client
+		channel.Close()
+
+		// Wait for the second copy operation to finish
+		<-done
+		log.Ctx(ctx).Info().Msg("[DEBUG] handleShellReq: both copy operations done")
+
+		// Wait for shell process to complete
+		err = cmd.Wait()
+		log.Ctx(ctx).Info().Err(err).Msg("[DEBUG] handleShellReq: cmd.Wait() returned")
+
+		var exitStatus uint32
+		if err != nil {
+			if exitErr, ok := err.(*exec.ExitError); ok {
+				exitStatus = uint32(exitErr.ExitCode())
+			} else {
+				exitStatus = 1
+			}
+		} else {
+			exitStatus = 0
 		}
 
-		go func() {
-			io.Copy(channel, ptmx)
-			ptmx.Close()
-		}()
-
-		go func() {
-			io.Copy(ptmx, channel)
-			ptmx.Close()
-		}()
+		log.Ctx(ctx).Info().Uint32("exit_status", exitStatus).Msg("[DEBUG] handleShellReq: shell completed (exit-status not sent because channel already closed)")
 	}
 
-	state.mu.Unlock()
-	req.Reply(true, nil)
+	return true
 }
 
 // handleExecReq handles an exec request
-func handleExecReq(ctx context.Context, req *ssh.Request, channel ssh.Channel, state *sessionState, cfg *types.Config) {
+func handleExecReq(ctx context.Context, req *ssh.Request, channel ssh.Channel, state *sessionState, cfg *types.Config) bool {
+	log.Ctx(ctx).Info().Msg("[DEBUG] handleExecReq: starting")
+
 	var msg execMsg
 	if err := ssh.Unmarshal(req.Payload, &msg); err != nil {
 		log.Ctx(ctx).Error().Err(err).Msg("failed to parse exec")
 		req.Reply(false, nil)
-		return
+		return true
 	}
 
-	log.Ctx(ctx).Debug().Str("command", msg.Command).Msg("exec request")
+	log.Ctx(ctx).Info().Str("command", msg.Command).Msg("[DEBUG] handleExecReq: command parsed")
 
 	state.mu.Lock()
 
-	// Start command without PTY for exec requests
 	cmd := exec.Command(cfg.Shell, "-c", msg.Command)
 	cmd.Env = state.env
 
@@ -212,7 +321,7 @@ func handleExecReq(ctx context.Context, req *ssh.Request, channel ssh.Channel, s
 		log.Ctx(ctx).Error().Err(err).Msg("failed to create stdout pipe")
 		req.Reply(false, nil)
 		state.mu.Unlock()
-		return
+		return true
 	}
 
 	stderrPipe, err := cmd.StderrPipe()
@@ -220,7 +329,7 @@ func handleExecReq(ctx context.Context, req *ssh.Request, channel ssh.Channel, s
 		log.Ctx(ctx).Error().Err(err).Msg("failed to create stderr pipe")
 		req.Reply(false, nil)
 		state.mu.Unlock()
-		return
+		return true
 	}
 
 	stdinPipe, err := cmd.StdinPipe()
@@ -228,23 +337,21 @@ func handleExecReq(ctx context.Context, req *ssh.Request, channel ssh.Channel, s
 		log.Ctx(ctx).Error().Err(err).Msg("failed to create stdin pipe")
 		req.Reply(false, nil)
 		state.mu.Unlock()
-		return
+		return true
 	}
 
 	if err := cmd.Start(); err != nil {
 		log.Ctx(ctx).Error().Err(err).Msg("failed to start command")
 		req.Reply(false, nil)
 		state.mu.Unlock()
-		return
+		return true
 	}
 
 	state.mu.Unlock()
 	req.Reply(true, nil)
 
-	// Use sync.WaitGroup to wait for all copy operations
 	var wg sync.WaitGroup
 
-	// Copy stdin from channel to command
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -252,27 +359,22 @@ func handleExecReq(ctx context.Context, req *ssh.Request, channel ssh.Channel, s
 		stdinPipe.Close()
 	}()
 
-	// Copy stdout to channel
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		io.Copy(channel, stdoutPipe)
 	}()
 
-	// Copy stderr to channel (as extended data)
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		io.Copy(channel, stderrPipe)
 	}()
 
-	// Wait for copy operations to complete
 	wg.Wait()
 
-	// Wait for command to complete
 	err = cmd.Wait()
 
-	// Send exit status
 	var exitStatus uint32
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
@@ -284,39 +386,44 @@ func handleExecReq(ctx context.Context, req *ssh.Request, channel ssh.Channel, s
 		exitStatus = 0
 	}
 
-	// Send exit-status request to channel
 	_, _ = channel.SendRequest("exit-status", false, ssh.Marshal(struct {
 		ExitStatus uint32
 	}{exitStatus}))
 
 	channel.Close()
-	log.Ctx(ctx).Debug().Uint32("exit_status", exitStatus).Msg("exec completed")
+	log.Ctx(ctx).Info().Uint32("exit_status", exitStatus).Msg("[DEBUG] handleExecReq: exec completed")
+
+	return true
 }
 
 // handleSubsystemReq handles a subsystem request
-func handleSubsystemReq(ctx context.Context, req *ssh.Request, channel ssh.Channel, state *sessionState, cfg *types.Config) {
+func handleSubsystemReq(ctx context.Context, req *ssh.Request, channel ssh.Channel, state *sessionState, cfg *types.Config) bool {
+	log.Ctx(ctx).Info().Msg("[DEBUG] handleSubsystemReq: starting")
+
 	var msg subsystemMsg
 	if err := ssh.Unmarshal(req.Payload, &msg); err != nil {
 		log.Ctx(ctx).Error().Err(err).Msg("failed to parse subsystem")
 		req.Reply(false, nil)
-		return
+		return true
 	}
 
-	log.Ctx(ctx).Debug().Str("subsystem", msg.Subsystem).Msg("subsystem request")
+	log.Ctx(ctx).Info().Str("subsystem", msg.Subsystem).Msg("[DEBUG] handleSubsystemReq: subsystem parsed")
 
-	// For now, just handle sftp as an example
 	if msg.Subsystem == "sftp" {
-		// Placeholder for SFTP subsystem
 		log.Ctx(ctx).Info().Str("subsystem", msg.Subsystem).Msg("handling sftp subsystem")
 		req.Reply(true, nil)
 	} else {
 		log.Ctx(ctx).Warn().Str("subsystem", msg.Subsystem).Msg("unsupported subsystem")
 		req.Reply(false, nil)
 	}
+
+	return true
 }
 
 // handleWindowChangeReq handles a window change request
 func handleWindowChangeReq(ctx context.Context, req *ssh.Request, state *sessionState) {
+	log.Ctx(ctx).Info().Msg("[DEBUG] handleWindowChangeReq: starting")
+
 	var msg struct {
 		Cols   uint32
 		Rows   uint32
@@ -329,13 +436,11 @@ func handleWindowChangeReq(ctx context.Context, req *ssh.Request, state *session
 		return
 	}
 
-	log.Ctx(ctx).Debug().Int("cols", int(msg.Cols)).Int("rows", int(msg.Rows)).Msg("window change")
+	log.Ctx(ctx).Info().Int("cols", int(msg.Cols)).Int("rows", int(msg.Rows)).Msg("[DEBUG] handleWindowChangeReq: parsed")
 
-	// Send to PTY resize routine
 	select {
 	case state.winCh <- windowChangeMsg{cols: msg.Cols, rows: msg.Rows}:
 	default:
-		// Channel is full, drop the message
 	}
 
 	req.Reply(true, nil)
@@ -343,6 +448,8 @@ func handleWindowChangeReq(ctx context.Context, req *ssh.Request, state *session
 
 // handleSignalReq handles a signal request
 func handleSignalReq(ctx context.Context, req *ssh.Request) {
+	log.Ctx(ctx).Info().Msg("[DEBUG] handleSignalReq: starting")
+
 	var msg struct {
 		Signal string
 	}
@@ -352,12 +459,10 @@ func handleSignalReq(ctx context.Context, req *ssh.Request) {
 		return
 	}
 
-	// Convert SSH signal to OS signal
 	sigName := strings.ToUpper(msg.Signal)
 	sig := utils.GetSignalByName(sigName)
 	if utils.IsValidSignal(sig) {
-		log.Ctx(ctx).Debug().Str("signal", sigName).Msg("signal request")
-		// We can't really send the signal without a PID, so we just acknowledge
+		log.Ctx(ctx).Info().Str("signal", sigName).Msg("[DEBUG] handleSignalReq: valid signal")
 		req.Reply(true, nil)
 	} else {
 		log.Ctx(ctx).Warn().Str("signal", sigName).Msg("unknown signal")
@@ -367,27 +472,24 @@ func handleSignalReq(ctx context.Context, req *ssh.Request) {
 
 // sendExitStatus sends the exit status to the SSH channel
 func sendExitStatus(channel ssh.Channel, state *sessionState) {
-	// Get exit status
-	var exitStatus uint32 = 0 // Default to 0
+	var exitStatus uint32 = 0
 
-	// Extended data for stderr (optional)
-	exitStatusData := []byte{0, 0, 0, 0} // 4-byte exit status in big-endian
+	exitStatusData := []byte{0, 0, 0, 0}
 	exitStatusData[0] = byte(exitStatus >> 24)
 	exitStatusData[1] = byte(exitStatus >> 16)
 	exitStatusData[2] = byte(exitStatus >> 8)
 	exitStatusData[3] = byte(exitStatus)
 
-	// Send exit-status request
-	payload := append([]byte{0, 0, 0, 11}, []byte("exit-status")...) // Request type
-	payload = append(payload, exitStatusData...)                      // Exit status
+	payload := append([]byte{0, 0, 0, 11}, []byte("exit-status")...)
+	payload = append(payload, exitStatusData...)
 
-	// We can't send extended requests with the current implementation
-	// So we just log it
 	log.Debug().Uint32("exit_status", exitStatus).Msg("sending exit status")
 }
 
 // HandleDirectTcpip handles direct TCP/IP forwarding
 func HandleDirectTcpip(ctx context.Context, newChannel ssh.NewChannel) {
+	log.Ctx(ctx).Info().Msg("[DEBUG] HandleDirectTcpip: starting")
+
 	var msg struct {
 		DestAddr string
 		DestPort uint32
@@ -407,9 +509,8 @@ func HandleDirectTcpip(ctx context.Context, newChannel ssh.NewChannel) {
 		Str("src_addr", msg.SrcAddr).
 		Uint32("src_port", msg.SrcPort).
 		Str("full_dest", destAddr).
-		Msg("direct-tcpip request")
+		Msg("[DEBUG] HandleDirectTcpip: parsed")
 
-	// Connect to destination
 	conn, err := net.Dial("tcp", destAddr)
 	if err != nil {
 		log.Ctx(ctx).Error().Err(err).Str("dest", destAddr).Msg("failed to connect")
@@ -417,7 +518,6 @@ func HandleDirectTcpip(ctx context.Context, newChannel ssh.NewChannel) {
 		return
 	}
 
-	// Accept the channel
 	channel, requests, err := newChannel.Accept()
 	if err != nil {
 		conn.Close()
@@ -425,20 +525,16 @@ func HandleDirectTcpip(ctx context.Context, newChannel ssh.NewChannel) {
 		return
 	}
 
-	// Handle requests on the channel
 	go ssh.DiscardRequests(requests)
 
-	// Copy data between connections - when either direction completes, close both
 	done := make(chan struct{}, 2)
 
-	// Remote to local (destination -> channel)
 	go func() {
 		io.Copy(channel, conn)
 		channel.CloseWrite()
 		done <- struct{}{}
 	}()
 
-	// Local to remote (channel -> destination)
 	go func() {
 		io.Copy(conn, channel)
 		if tcpConn, ok := conn.(*net.TCPConn); ok {
@@ -447,13 +543,11 @@ func HandleDirectTcpip(ctx context.Context, newChannel ssh.NewChannel) {
 		done <- struct{}{}
 	}()
 
-	// Wait for both directions to complete
 	<-done
 	<-done
 
-	// Close both connections
 	channel.Close()
 	conn.Close()
 
-	log.Ctx(ctx).Debug().Str("dest", destAddr).Msg("direct-tcpip closed")
+	log.Ctx(ctx).Info().Str("dest", destAddr).Msg("[DEBUG] HandleDirectTcpip: closed")
 }

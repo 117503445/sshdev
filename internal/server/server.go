@@ -10,6 +10,7 @@ import (
 	"os"
 	"sync"
 
+	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"golang.org/x/crypto/ssh"
 
@@ -17,6 +18,11 @@ import (
 	"github.com/117503445/sshdev/internal/session"
 	"github.com/117503445/sshdev/internal/types"
 )
+
+func init() {
+	// Set log level to debug for testing
+	zerolog.SetGlobalLevel(zerolog.DebugLevel)
+}
 
 // Server represents the SSH server
 type Server struct {
@@ -208,19 +214,34 @@ func (s *Server) Start() error {
 
 // handleConnection handles a single SSH connection
 func (s *Server) handleConnection(conn net.Conn) {
-	defer s.wg.Done()
-	defer conn.Close()
+	log.Info().Str("remote", conn.RemoteAddr().String()).Msg("[DEBUG] handleConnection: starting")
+
+	defer func() {
+		s.wg.Done()
+		log.Info().Str("remote", conn.RemoteAddr().String()).Msg("[DEBUG] handleConnection: wg.Done() called")
+	}()
+	defer func() {
+		conn.Close()
+		log.Info().Str("remote", conn.RemoteAddr().String()).Msg("[DEBUG] handleConnection: conn.Close() called")
+	}()
 
 	ctx := context.Background()
 	log.Ctx(ctx).Info().Str("remote", conn.RemoteAddr().String()).Msg("new connection")
 
 	// Perform SSH handshake
+	log.Ctx(ctx).Info().Msg("[DEBUG] handleConnection: performing SSH handshake")
 	sshConn, chans, reqs, err := ssh.NewServerConn(conn, s.sshCfg)
 	if err != nil {
 		log.Ctx(ctx).Error().Err(err).Msg("SSH handshake failed")
 		return
 	}
-	defer sshConn.Close()
+	log.Ctx(ctx).Info().Msg("[DEBUG] handleConnection: SSH handshake successful")
+
+	defer func() {
+		log.Ctx(ctx).Info().Msg("[DEBUG] handleConnection: closing sshConn (defer)")
+		sshConn.Close()
+		log.Ctx(ctx).Info().Msg("[DEBUG] handleConnection: sshConn closed (defer)")
+	}()
 
 	newCtx := log.With().
 		Str("user", sshConn.User()).
@@ -231,22 +252,33 @@ func (s *Server) handleConnection(conn net.Conn) {
 
 	// Create forward manager for remote port forwarding
 	forwardMgr := session.NewForwardManager(sshConn)
-	defer forwardMgr.Close()
+	defer func() {
+		log.Ctx(newCtx).Info().Msg("[DEBUG] handleConnection: closing forwardMgr (defer)")
+		forwardMgr.Close()
+		log.Ctx(newCtx).Info().Msg("[DEBUG] handleConnection: forwardMgr closed (defer)")
+	}()
 
 	// Handle global requests
+	log.Ctx(newCtx).Info().Msg("[DEBUG] handleConnection: starting handleGlobalRequests goroutine")
 	go s.handleGlobalRequests(newCtx, reqs, forwardMgr)
 
 	// Handle channels
+	log.Ctx(newCtx).Info().Msg("[DEBUG] handleConnection: entering channel loop")
 	for newChannel := range chans {
+		log.Ctx(newCtx).Info().Str("channel_type", newChannel.ChannelType()).Msg("[DEBUG] handleConnection: received new channel")
 		s.handleChannel(newCtx, newChannel, sshConn)
 	}
 
-	log.Ctx(newCtx).Info().Msg("connection closed")
+	log.Ctx(newCtx).Info().Msg("[DEBUG] handleConnection: channel loop ended (chans closed)")
 }
 
 // handleGlobalRequests handles global SSH requests
 func (s *Server) handleGlobalRequests(ctx context.Context, reqs <-chan *ssh.Request, forwardMgr *session.ForwardManager) {
+	log.Ctx(ctx).Info().Msg("[DEBUG] handleGlobalRequests: starting")
+
 	for req := range reqs {
+		log.Ctx(ctx).Info().Str("type", req.Type).Msg("[DEBUG] handleGlobalRequests: received request")
+
 		switch req.Type {
 		case "tcpip-forward":
 			// Remote port forwarding request
@@ -262,6 +294,7 @@ func (s *Server) handleGlobalRequests(ctx context.Context, reqs <-chan *ssh.Requ
 			// Cancel remote port forwarding
 			forwardMgr.CancelForward(ctx, req)
 		case "keepalive@openssh.com":
+			log.Ctx(ctx).Info().Msg("[DEBUG] handleGlobalRequests: keepalive request")
 			if req.WantReply {
 				req.Reply(true, nil)
 			}
@@ -272,18 +305,24 @@ func (s *Server) handleGlobalRequests(ctx context.Context, reqs <-chan *ssh.Requ
 			}
 		}
 	}
+
+	log.Ctx(ctx).Info().Msg("[DEBUG] handleGlobalRequests: channel closed, exiting")
 }
 
 // handleChannel handles a new SSH channel
 func (s *Server) handleChannel(ctx context.Context, newChannel ssh.NewChannel, conn *ssh.ServerConn) {
 	channelType := newChannel.ChannelType()
+	log.Ctx(ctx).Info().Str("channel_type", channelType).Msg("[DEBUG] handleChannel: starting")
 
 	switch channelType {
 	case "session":
+		log.Ctx(ctx).Info().Msg("[DEBUG] handleChannel: handling session channel")
 		s.wg.Add(1)
 		go func() {
 			defer s.wg.Done()
+			log.Ctx(ctx).Info().Msg("[DEBUG] handleChannel: calling HandleSession")
 			session.HandleSession(ctx, newChannel, s.cfg)
+			log.Ctx(ctx).Info().Msg("[DEBUG] handleChannel: HandleSession returned")
 		}()
 
 	case "direct-tcpip":
