@@ -10,12 +10,14 @@ permissions:
   contents: write
 
 jobs:
-  test:
-    name: Test
+  build:
+    name: Build and Release
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -23,108 +25,45 @@ jobs:
           go-version: '1.26'
           cache: true
 
-      - name: Download dependencies
-        run: go mod download
+      - name: Install Task
+        uses: arduino/setup-task@v2
+        with:
+          version: 3.x
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Run tests
-        run: go test -v -timeout 120s ./...
-
-  build:
-    name: Build Release
-    runs-on: ubuntu-latest
-    needs: test
-    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.26'
-          cache: true
-
-      - name: Download dependencies
-        run: go mod download
+        run: task test:all
 
       - name: Get version
         id: version
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
         run: |
-          VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo "v0.0.0-${GITHUB_SHA::7}")
+          VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo "v0.0.0-$(git rev-parse --short HEAD)")
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
           echo "Building version: ${VERSION}"
 
-      - name: Build for Linux AMD64
+      - name: Build release binaries
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
-          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "-s -w -X main.Version=${{ steps.version.outputs.version }}" -o sshdev-linux-amd64 ./cmd/dev-sshd
+          mkdir -p ./data/release
+          LDFLAGS="-s -w -X main.Version=${VERSION}"
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o ./data/release/sshdev-linux-amd64 ./cmd/sshdev
+          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o ./data/release/sshdev-linux-arm64 ./cmd/sshdev
+          GOOS=darwin GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o ./data/release/sshdev-darwin-amd64 ./cmd/sshdev
+          GOOS=darwin GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o ./data/release/sshdev-darwin-arm64 ./cmd/sshdev
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o ./data/release/sshdev-windows-amd64.exe ./cmd/sshdev
 
-      - name: Build for Linux ARM64
+      - name: Prepare release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
         run: |
-          CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags "-s -w -X main.Version=${{ steps.version.outputs.version }}" -o sshdev-linux-arm64 ./cmd/dev-sshd
-
-      - name: Build for Darwin AMD64
-        run: |
-          CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -ldflags "-s -w -X main.Version=${{ steps.version.outputs.version }}" -o sshdev-darwin-amd64 ./cmd/dev-sshd
-
-      - name: Build for Darwin ARM64
-        run: |
-          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -ldflags "-s -w -X main.Version=${{ steps.version.outputs.version }}" -o sshdev-darwin-arm64 ./cmd/dev-sshd
-
-      - name: Build for Windows AMD64
-        run: |
-          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags "-s -w -X main.Version=${{ steps.version.outputs.version }}" -o sshdev-windows-amd64.exe ./cmd/dev-sshd
-
-      - name: Create release archive
-        run: |
-          mkdir -p release
-          cp sshdev-linux-amd64 release/
-          cp sshdev-linux-arm64 release/
-          cp sshdev-darwin-amd64 release/
-          cp sshdev-darwin-arm64 release/
-          cp sshdev-windows-amd64.exe release/
-          cp README.md release/
-          cp LICENSE release/
-          tar -czf sshdev-${{ steps.version.outputs.version }}.tar.gz -C release .
-
-      - name: Generate checksums
-        run: |
-          cd release
+          cp README.md LICENSE ./data/release/
+          cd ./data/release
           sha256sum sshdev-linux-amd64 sshdev-linux-arm64 sshdev-darwin-amd64 sshdev-darwin-arm64 sshdev-windows-amd64.exe > checksums.txt
 
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: sshdev-binaries
-          path: |
-            release/sshdev-*
-            release/checksums.txt
-
-  release:
-    name: Create Release
-    runs-on: ubuntu-latest
-    needs: build
-    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Download artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: sshdev-binaries
-          path: release/
-
-      - name: Get version
-        id: version
-        run: |
-          VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo "v0.0.0-${GITHUB_SHA::7}")
-          echo "version=${VERSION}" >> $GITHUB_OUTPUT
-
-      - name: Create tarball
-        run: |
-          tar -czf sshdev-${{ steps.version.outputs.version }}.tar.gz -C release .
-
       - name: Create Release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.version }}
@@ -132,26 +71,24 @@ jobs:
           body: |
             ## sshdev ${{ steps.version.outputs.version }}
 
-            ### Downloads
-            - Linux AMD64: `sshdev-linux-amd64`
-            - Linux ARM64: `sshdev-linux-arm64`
-            - macOS (Intel): `sshdev-darwin-amd64`
-            - macOS (Apple Silicon): `sshdev-darwin-arm64`
-            - Windows: `sshdev-windows-amd64.exe`
+            | Platform | Architecture | File |
+            |----------|-------------|------|
+            | Linux | AMD64 | `sshdev-linux-amd64` |
+            | Linux | ARM64 | `sshdev-linux-arm64` |
+            | macOS | Intel | `sshdev-darwin-amd64` |
+            | macOS | Apple Silicon | `sshdev-darwin-arm64` |
+            | Windows | AMD64 | `sshdev-windows-amd64.exe` |
 
-            Checksums available in `checksums.txt`
-
-            **Note:** Verify checksums with:
             ```bash
             sha256sum -c checksums.txt
             ```
           files: |
-            release/sshdev-linux-amd64
-            release/sshdev-linux-arm64
-            release/sshdev-darwin-amd64
-            release/sshdev-darwin-arm64
-            release/sshdev-windows-amd64.exe
-            release/checksums.txt
+            data/release/sshdev-linux-amd64
+            data/release/sshdev-linux-arm64
+            data/release/sshdev-darwin-amd64
+            data/release/sshdev-darwin-arm64
+            data/release/sshdev-windows-amd64.exe
+            data/release/checksums.txt
           draft: false
           prerelease: false
           fail_on_unmatched_files: true
