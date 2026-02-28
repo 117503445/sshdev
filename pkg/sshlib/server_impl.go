@@ -20,6 +20,7 @@ func newServer(cfg *Config) (Server, error) {
 		ListenAddr:           cfg.ListenAddr,
 		HostKeyPath:          cfg.HostKeyPath,
 		HostKeyContent:       cfg.HostKeyContent,
+		HostKeyBuiltin:       cfg.HostKeyBuiltin,
 		Password:             cfg.Password,
 		AuthorizedKeysFiles:  cfg.AuthorizedKeysFiles,
 		AuthorizedKeys:       cfg.AuthorizedKeys,

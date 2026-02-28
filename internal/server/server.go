@@ -13,6 +13,7 @@ import (
 	"github.com/rs/zerolog/log"
 	"golang.org/x/crypto/ssh"
 
+	"github.com/117503445/sshdev/embedded"
 	"github.com/117503445/sshdev/internal/auth"
 	"github.com/117503445/sshdev/internal/session"
 	"github.com/117503445/sshdev/internal/types"
@@ -72,7 +73,7 @@ func NewServer(cfg *types.Config) (*Server, error) {
 
 // loadOrGenerateHostKey loads an existing host key or generates a new one
 func (s *Server) loadOrGenerateHostKey(ctx context.Context) (ssh.Signer, error) {
-	// Priority: HostKeyContent (env) > HostKeyPath (file) > generate random
+	// Priority: HostKeyContent (env) > HostKeyBuiltin (env) > HostKeyPath (file) > generate random
 
 	// 1. Try HostKeyContent (direct key content from env)
 	if s.cfg.HostKeyContent != "" {
@@ -84,7 +85,17 @@ func (s *Server) loadOrGenerateHostKey(ctx context.Context) (ssh.Signer, error) 
 		return signer, nil
 	}
 
-	// 2. Try HostKeyPath (file path)
+	// 2. Try HostKeyBuiltin (built-in embedded key)
+	if s.cfg.HostKeyBuiltin {
+		signer, err := ssh.ParsePrivateKey([]byte(embedded.HostKey))
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse built-in host key: %w", err)
+		}
+		log.Ctx(ctx).Info().Msg("loaded built-in host key (SSHDEV_HOST_KEY_BUILTIN)")
+		return signer, nil
+	}
+
+	// 3. Try HostKeyPath (file path)
 	if s.cfg.HostKeyPath != "" {
 		keyData, err := os.ReadFile(s.cfg.HostKeyPath)
 		if err == nil {
@@ -97,7 +108,7 @@ func (s *Server) loadOrGenerateHostKey(ctx context.Context) (ssh.Signer, error) 
 		}
 	}
 
-	// 3. Generate new ED25519 key (don't save to file)
+	// 4. Generate new ED25519 key (don't save to file)
 	log.Ctx(ctx).Info().Msg("generating new random ED25519 host key")
 	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {

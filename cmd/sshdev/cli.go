@@ -21,6 +21,7 @@ type CmdRun struct {
 	ListenAddr          string `name:"listen" help:"listen address" default:"0.0.0.0:2222" env:"SSHDEV_LISTEN"`
 	HostKeyPath         string `name:"host-key" help:"host key file path" env:"SSHDEV_HOST_KEY_PATH"`
 	HostKeyContent      string `name:"host-key-content" help:"host key content (PEM format)" env:"SSHDEV_HOST_KEY"`
+	HostKeyBuiltin      bool   `name:"host-key-builtin" help:"use built-in host key" env:"SSHDEV_HOST_KEY_BUILTIN"`
 	Password            string `name:"password" help:"password for authentication" env:"SSHDEV_PASSWORD"`
 	AuthorizedKeysFiles string `name:"authorized-keys-files" help:"authorized keys file paths (colon-separated)" env:"SSHDEV_AUTHORIZED_KEYS_FILES"`
 	AuthorizedKeys      string `name:"authorized-keys" help:"authorized keys content (newline-separated)" env:"SSHDEV_AUTHORIZED_KEYS"`
@@ -33,6 +34,7 @@ type JSONConfig struct {
 	ListenAddr          string `json:"listenAddr"`
 	HostKeyPath         string `json:"hostKeyPath"`
 	HostKeyContent      string `json:"hostKeyContent"`
+	HostKeyBuiltin      bool   `json:"hostKeyBuiltin"`
 	Password            string `json:"password"`
 	AuthorizedKeysFiles string `json:"authorizedKeysFiles"`
 	AuthorizedKeys      string `json:"authorizedKeys"`
@@ -103,6 +105,9 @@ func applyJSONConfig(cfg *sshlib.Config, jsonCfg *JSONConfig) {
 	if jsonCfg.HostKeyContent != "" {
 		cfg.HostKeyContent = jsonCfg.HostKeyContent
 	}
+	if jsonCfg.HostKeyBuiltin {
+		cfg.HostKeyBuiltin = jsonCfg.HostKeyBuiltin
+	}
 	if jsonCfg.Password != "" {
 		cfg.Password = jsonCfg.Password
 	}
@@ -127,6 +132,9 @@ func applyCLIConfig(cfg *sshlib.Config, cmd *CmdRun) {
 	}
 	if cmd.HostKeyContent != "" {
 		cfg.HostKeyContent = cmd.HostKeyContent
+	}
+	if cmd.HostKeyBuiltin {
+		cfg.HostKeyBuiltin = cmd.HostKeyBuiltin
 	}
 	if cmd.Password != "" {
 		cfg.Password = cmd.Password

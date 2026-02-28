@@ -5,6 +5,7 @@ type Config struct {
 	ListenAddr           string
 	HostKeyPath          string // Path to host key file (command line arg)
 	HostKeyContent       string // Host key content (from env SSHDEV_HOST_KEY)
+	HostKeyBuiltin       bool   // Use built-in host key (from env SSHDEV_HOST_KEY_BUILTIN)
 	Password             string // Password for authentication (from env SSHDEV_PASSWORD)
 	AuthorizedKeysFiles  string // Authorized keys file paths, colon-separated (from env SSHDEV_AUTHORIZED_KEYS_FILES)
 	AuthorizedKeys       string // Authorized keys content, newline-separated (from env SSHDEV_AUTHORIZED_KEYS)

@@ -12,6 +12,7 @@
 | `SSHDEV_AUTHORIZED_KEYS` | 授权公钥内容（换行分隔） | - |
 | `SSHDEV_HOST_KEY` | 主机密钥内容（PEM 格式） | 随机生成 |
 | `SSHDEV_HOST_KEY_PATH` | 主机密钥文件路径 | - |
+| `SSHDEV_HOST_KEY_BUILTIN` | 使用内置主机密钥（任意非空值启用） | - |
 | `SSHDEV_SHELL` | 默认 shell（空则使用当前用户默认 shell） | - |
 | `SSHDEV_CONFIG_JSON` | JSON 格式的完整配置 | - |
 
@@ -84,4 +85,13 @@ SSHDEV_HOST_KEY="$(cat /path/to/host_key)" ./sshdev run
 
 # 从文件路径
 ./sshdev run --host-key-path="/path/to/host_key"
+
+# 使用内置主机密钥（适合测试环境，无需生成密钥文件）
+SSHDEV_HOST_KEY_BUILTIN=1 ./sshdev run
 ```
+
+**主机密钥优先级**：
+1. `SSHDEV_HOST_KEY` - 环境变量指定的密钥内容
+2. `SSHDEV_HOST_KEY_BUILTIN` - 内置的 ED25519 密钥
+3. `SSHDEV_HOST_KEY_PATH` / `--host-key-path` - 密钥文件路径
+4. 随机生成 - 每次启动生成新密钥
