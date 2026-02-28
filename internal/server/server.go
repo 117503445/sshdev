@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"sync"
+	"sync/atomic"
 
 	"github.com/rs/zerolog/log"
 	"golang.org/x/crypto/ssh"
@@ -20,11 +21,12 @@ import (
 
 // Server represents the SSH server
 type Server struct {
-	cfg      *types.Config
-	sshCfg   *ssh.ServerConfig
-	listener net.Listener
-	wg       sync.WaitGroup
-	quit     chan struct{}
+	cfg        *types.Config
+	sshCfg     *ssh.ServerConfig
+	listener   net.Listener
+	wg         sync.WaitGroup
+	quit       chan struct{}
+	connIDGen  atomic.Uint64
 }
 
 // NewServer creates a new SSH server
@@ -144,9 +146,14 @@ func (s *Server) Start(ctx context.Context) error {
 
 // handleConnection handles a single SSH connection
 func (s *Server) handleConnection(ctx context.Context, conn net.Conn) {
+	// Assign a unique connection ID
+	connID := s.connIDGen.Add(1)
+	ctx = log.With().Uint64("connID", connID).Logger().WithContext(ctx)
+
 	defer func() {
 		s.wg.Done()
 		conn.Close()
+		log.Ctx(ctx).Info().Msg("connection closed")
 	}()
 
 	log.Ctx(ctx).Info().Str("remote", conn.RemoteAddr().String()).Msg("new connection")
@@ -159,7 +166,7 @@ func (s *Server) handleConnection(ctx context.Context, conn net.Conn) {
 	}
 	defer sshConn.Close()
 
-	newCtx := log.With().
+	newCtx := log.Ctx(ctx).With().
 		Str("user", sshConn.User()).
 		Str("client", sshConn.RemoteAddr().String()).
 		Logger().WithContext(ctx)
