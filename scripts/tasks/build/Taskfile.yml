@@ -2,6 +2,7 @@ version: 3
 
 tasks:
   bin:
+    desc: "构建二进制文件到 ./data/cli/sshdev"
     deps: [":base:clear"]
     sources:
       - ./cmd/**
@@ -20,7 +21,7 @@ tasks:
       - go build -ldflags "-s -w" -o ./data/cli/sshdev ./cmd/sshdev
 
   release:
-    desc: "Build release binaries for multiple platforms"
+    desc: "构建多平台发布版本"
     deps: [":base:clear"]
     sources:
       - ./cmd/sshdev/**
@@ -43,19 +44,21 @@ tasks:
         GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "-s -w" -o ./data/release/sshdev-windows-amd64.exe ./cmd/sshdev
 
   linux:
-    desc: "Build for Linux AMD64 (static)"
+    desc: "构建 Linux AMD64 静态二进制"
     deps: [":base:clear"]
     cmds:
       - mkdir -p ./data/cli
       - CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "-s -w" -o ./data/cli/sshdev ./cmd/sshdev
 
   deps:
-    desc: "Download dependencies"
+    desc: "下载依赖"
+    deps: [":base:clear"]
     cmds:
       - go mod download
       - go mod tidy
 
   docker:
-    desc: "Build docker image"
+    desc: "构建 Docker 镜像"
+    deps: [":base:clear"]
     cmds:
       - docker build -t sshdev:latest .

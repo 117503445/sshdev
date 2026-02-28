@@ -2,17 +2,20 @@ version: 3
 
 tasks:
   go:
-    desc: "Format Go code"
+    desc: "格式化 Go 代码"
+    deps: [":base:clear"]
     cmds:
       - go fmt ./...
 
   check:
-    desc: "Check code with go vet"
+    desc: "使用 go vet 检查代码"
+    deps: [":base:clear"]
     cmds:
       - go vet ./...
 
   all:
-    desc: "Format and check all code"
+    desc: "格式化并检查所有代码"
+    deps: [":base:clear"]
     cmds:
       - task: go
       - task: check

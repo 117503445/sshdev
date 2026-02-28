@@ -2,32 +2,38 @@ version: 3
 
 tasks:
   unit:
-    desc: "Run unit tests"
+    desc: "运行单元测试"
+    deps: [":base:clear"]
     cmds:
       - go test ./internal/... -v -timeout 60s
 
   integration:
-    desc: "Run integration tests"
+    desc: "运行集成测试"
+    deps: [":base:clear"]
     cmds:
       - go test -v -run "TestSSHServer|TestConfigValidation|TestCLI" -timeout 120s
 
   all:
-    desc: "Run all tests"
+    desc: "运行所有测试"
+    deps: [":base:clear"]
     cmds:
       - go test ./... -v -timeout 120s
 
   short:
-    desc: "Run short tests"
+    desc: "运行快速测试"
+    deps: [":base:clear"]
     cmds:
       - go test ./... -short -timeout 30s
 
   coverage:
-    desc: "Run tests with coverage"
+    desc: "运行测试覆盖率报告"
+    deps: [":base:clear"]
     cmds:
       - go test ./... -coverprofile=coverage.out -timeout 120s
       - go tool cover -html=coverage.out -o coverage.html
 
   race:
-    desc: "Run tests with race detection"
+    desc: "运行竞态检测测试"
+    deps: [":base:clear"]
     cmds:
       - go test ./... -race -timeout 120s

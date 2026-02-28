@@ -4,6 +4,7 @@ dotenv: [".env"]
 
 tasks:
   default:
+    desc: "使用本地配置运行（默认）"
     deps: ["run:local"]
 
 includes:
@@ -13,8 +14,6 @@ includes:
     taskfile: ./scripts/tasks/build
   run:
     taskfile: ./scripts/tasks/run
-  gen:
-    taskfile: ./scripts/tasks/gen
   deploy:
     taskfile: ./scripts/tasks/deploy
   format:

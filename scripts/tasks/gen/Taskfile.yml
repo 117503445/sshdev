@@ -1,7 +1,0 @@
-version: 3
-
-tasks:
-  init:
-    desc: "Initialize project"
-    cmds:
-      - echo "Project initialized"

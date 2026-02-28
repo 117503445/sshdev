@@ -2,10 +2,8 @@ version: 3
 
 tasks:
   clear:
-    desc: "Clear build artifacts"
     cmds:
-      - rm -f ./data/cli/* ./data/rpc/* 2>/dev/null || true
-      - mkdir -p ./data/cli ./data/rpc ./release
+      - clear || true
 
   check-git:
     silent: true

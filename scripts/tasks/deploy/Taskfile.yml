@@ -2,6 +2,7 @@ version: 3
 
 tasks:
   docker:
-    desc: "Deploy using Docker"
+    desc: "使用 Docker 部署"
+    deps: [":base:clear"]
     cmds:
       - docker-compose up -d
