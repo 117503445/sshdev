@@ -6,10 +6,10 @@ services:
     ports:
       - "2222:2222"
     environment:
-      - SSHD_USERNAME=test
-      - SSHD_PASSWORD=test
-      - SSHD_LISTEN=:2222
-      - SSHD_AUTH_MODE=password
+      - SSHDEV_USERNAME=test
+      - SSHDEV_PASSWORD=test
+      - SSHDEV_LISTEN=:2222
+      - SSHDEV_AUTH_MODE=password
     volumes:
       - ./host_key:/app/host_key
       - ~/.ssh/authorized_keys:/home/nonroot/.ssh/authorized_keys

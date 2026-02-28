@@ -49,10 +49,10 @@ func (c *Config) Validate() error {
 	// Check password auth requirements
 	if c.AuthMode == AuthModePassword || c.AuthMode == AuthModeAll {
 		if c.Username == "" {
-			return fmt.Errorf("username is required for password authentication (set SSHD_USERNAME)")
+			return fmt.Errorf("username is required for password authentication (set SSHDEV_USERNAME)")
 		}
 		if c.Password == "" && c.AuthMode == AuthModePassword {
-			return fmt.Errorf("password is required for password authentication (set SSHD_PASSWORD)")
+			return fmt.Errorf("password is required for password authentication (set SSHDEV_PASSWORD)")
 		}
 	}
 

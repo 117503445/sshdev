@@ -17,13 +17,13 @@ var cli struct {
 }
 
 type CmdRun struct {
-	ListenAddr          string `name:"listen" help:"listen address" default:"0.0.0.0:2222" env:"SSHD_LISTEN"`
-	HostKeyPath         string `name:"host-key" help:"host key file path" default:"./host_key" env:"SSHD_HOST_KEY"`
-	AuthMode            string `name:"auth-mode" help:"auth mode (password/publickey/none/all)" default:"password" env:"SSHD_AUTH_MODE"`
-	Username            string `name:"username" help:"username for authentication" env:"SSHD_USERNAME"`
-	AuthorizedKeys      string `name:"authorized-keys" help:"authorized keys file path" env:"SSHD_AUTHORIZED_KEYS"`
-	Shell               string `name:"shell" help:"default shell" env:"SSHD_SHELL"`
-	Password            string `name:"password" help:"password for authentication (only from env)" env:"SSHD_PASSWORD"`
+	ListenAddr          string `name:"listen" help:"listen address" default:"0.0.0.0:2222" env:"SSHDEV_LISTEN"`
+	HostKeyPath         string `name:"host-key" help:"host key file path" default:"./host_key" env:"SSHDEV_HOST_KEY"`
+	AuthMode            string `name:"auth-mode" help:"auth mode (password/publickey/none/all)" default:"password" env:"SSHDEV_AUTH_MODE"`
+	Username            string `name:"username" help:"username for authentication" env:"SSHDEV_USERNAME"`
+	AuthorizedKeys      string `name:"authorized-keys" help:"authorized keys file path" env:"SSHDEV_AUTHORIZED_KEYS"`
+	Shell               string `name:"shell" help:"default shell" env:"SSHDEV_SHELL"`
+	Password            string `name:"password" help:"password for authentication (only from env)" env:"SSHDEV_PASSWORD"`
 }
 
 func (cmd *CmdRun) Run() error {

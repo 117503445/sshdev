@@ -15,7 +15,7 @@ go build -o sshdev ./cmd/dev-sshd
 
 #### 密码认证模式
 ```bash
-SSHD_USERNAME=vscode SSHD_PASSWORD=secret ./sshdev run
+SSHDEV_USERNAME=vscode SSHDEV_PASSWORD=secret ./sshdev run
 ```
 
 #### 公钥认证模式
@@ -37,13 +37,13 @@ ssh -p 2222 user@host
 
 | 环境变量 | 说明 |
 |---------|------|
-| SSHD_LISTEN | 监听地址（默认：0.0.0.0:2222） |
-| SSHD_USERNAME | 认证用户名 |
-| SSHD_PASSWORD | 认证密码 |
-| SSHD_AUTH_MODE | 认证模式（password/publickey/none/all） |
-| SSHD_HOST_KEY | Host key 文件路径 |
-| SSHD_SHELL | 默认 shell（默认：/bin/bash） |
-| SSHD_AUTHORIZED_KEYS | 授权公钥文件路径 |
+| SSHDEV_LISTEN | 监听地址（默认：0.0.0.0:2222） |
+| SSHDEV_USERNAME | 认证用户名 |
+| SSHDEV_PASSWORD | 认证密码 |
+| SSHDEV_AUTH_MODE | 认证模式（password/publickey/none/all） |
+| SSHDEV_HOST_KEY | Host key 文件路径 |
+| SSHDEV_SHELL | 默认 shell（默认：/bin/bash） |
+| SSHDEV_AUTHORIZED_KEYS | 授权公钥文件路径 |
 
 ## 作为 Go 库
 

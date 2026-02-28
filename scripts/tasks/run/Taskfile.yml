@@ -6,7 +6,7 @@ tasks:
     deps: [":build:bin"]
     cmds:
       - |
-        SSHD_USERNAME=test SSHD_PASSWORD=test ./data/cli/sshdev run --listen=":2222" --host-key="./host_key" --auth-mode="password"
+        SSHDEV_USERNAME=test SSHDEV_PASSWORD=test ./data/cli/sshdev run --listen=":2222" --host-key="./host_key" --auth-mode="password"
 
   noauth:
     desc: "Run with no auth (for testing)"
