@@ -28,7 +28,6 @@ func TestNewServer(t *testing.T) {
 	cfg := &sshlib.Config{
 		ListenAddr:  fmt.Sprintf("127.0.0.1:%d", port),
 		HostKeyPath: hostKeyPath,
-		AuthMode:    sshlib.AuthModeNone,
 		Shell:       "/bin/sh",
 	}
 
@@ -94,45 +93,37 @@ func TestNewServer(t *testing.T) {
 // TestConfigValidation tests config validation via pkg API
 func TestConfigValidation(t *testing.T) {
 	tests := []struct {
-		name          string
-		config        *sshlib.Config
-		expectError   bool
+		name        string
+		config      *sshlib.Config
+		expectError bool
 	}{
 		{
-			name: "valid password auth with credentials",
+			name: "valid config with password auth",
 			config: &sshlib.Config{
-				ListenAddr:  "127.0.0.1:2222",
+				ListenAddr: "127.0.0.1:2222",
 				HostKeyPath: "/tmp/key",
-				AuthMode:    sshlib.AuthModePassword,
-				Username:    "test",
-				Password:    "test",
+				Password:   "test",
+				Shell:      "/bin/sh",
+			},
+			expectError: false,
+		},
+		{
+			name: "valid config with no auth",
+			config: &sshlib.Config{
+				ListenAddr: "127.0.0.1:2222",
+				HostKeyPath: "/tmp/key",
 				Shell:       "/bin/sh",
 			},
 			expectError: false,
 		},
 		{
-			name: "password auth without username",
+			name: "invalid shell path",
 			config: &sshlib.Config{
-				ListenAddr:  "127.0.0.1:2222",
+				ListenAddr: "127.0.0.1:2222",
 				HostKeyPath: "/tmp/key",
-				AuthMode:    sshlib.AuthModePassword,
-				Username:    "",
-				Password:    "test",
-				Shell:       "/bin/sh",
+				Shell:       "/this/path/does/not/exist",
 			},
 			expectError: true,
-		},
-		{
-			name: "no auth mode",
-			config: &sshlib.Config{
-				ListenAddr:  "127.0.0.1:2222",
-				HostKeyPath: "/tmp/key",
-				AuthMode:    sshlib.AuthModeNone,
-				Username:    "",
-				Password:    "",
-				Shell:       "/bin/sh",
-			},
-			expectError: false,
 		},
 	}
 
@@ -149,47 +140,62 @@ func TestConfigValidation(t *testing.T) {
 	}
 }
 
-// TestAuthModeString tests AuthMode String method
-func TestAuthModeString(t *testing.T) {
+// TestHasPasswordAuth tests HasPasswordAuth method
+func TestHasPasswordAuth(t *testing.T) {
 	tests := []struct {
-		mode     sshlib.AuthMode
-		expected string
+		name     string
+		config   *sshlib.Config
+		expected bool
 	}{
-		{sshlib.AuthModePassword, "password"},
-		{sshlib.AuthModePublicKey, "publickey"},
-		{sshlib.AuthModeNone, "none"},
-		{sshlib.AuthModeAll, "all"},
-		{sshlib.AuthMode(-1), "unknown"},
+		{
+			name:     "with password",
+			config:   &sshlib.Config{Password: "secret"},
+			expected: true,
+		},
+		{
+			name:     "without password",
+			config:   &sshlib.Config{Password: ""},
+			expected: false,
+		},
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.expected, func(t *testing.T) {
-			result := tt.mode.String()
+		t.Run(tt.name, func(t *testing.T) {
+			result := tt.config.HasPasswordAuth()
 			if result != tt.expected {
-				t.Errorf("Expected %s, got %s", tt.expected, result)
+				t.Errorf("Expected %v, got %v", tt.expected, result)
 			}
 		})
 	}
 }
 
-// TestParseAuthMode tests parsing auth mode strings
-func TestParseAuthMode(t *testing.T) {
+// TestHasPublicKeyAuth tests HasPublicKeyAuth method
+func TestHasPublicKeyAuth(t *testing.T) {
 	tests := []struct {
-		input    string
-		expected sshlib.AuthMode
+		name     string
+		config   *sshlib.Config
+		expected bool
 	}{
-		{"password", sshlib.AuthModePassword},
-		{"publickey", sshlib.AuthModePublicKey},
-		{"public_key", sshlib.AuthModePublicKey},
-		{"pubkey", sshlib.AuthModePublicKey},
-		{"none", sshlib.AuthModeNone},
-		{"all", sshlib.AuthModeAll},
-		{"unknown", sshlib.AuthModePassword},
+		{
+			name:     "with authorized keys files",
+			config:   &sshlib.Config{AuthorizedKeysFiles: "/home/user/.ssh/authorized_keys"},
+			expected: true,
+		},
+		{
+			name:     "with authorized keys content",
+			config:   &sshlib.Config{AuthorizedKeys: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl"},
+			expected: true,
+		},
+		{
+			name:     "without public key auth",
+			config:   &sshlib.Config{},
+			expected: false,
+		},
 	}
 
 	for _, tt := range tests {
-		t.Run(tt.input, func(t *testing.T) {
-			result := sshlib.ParseAuthMode(tt.input)
+		t.Run(tt.name, func(t *testing.T) {
+			result := tt.config.HasPublicKeyAuth()
 			if result != tt.expected {
 				t.Errorf("Expected %v, got %v", tt.expected, result)
 			}
@@ -222,7 +228,6 @@ func TestShellExitDisconnect(t *testing.T) {
 	cfg := &sshlib.Config{
 		ListenAddr:  fmt.Sprintf("127.0.0.1:%d", port),
 		HostKeyPath: hostKeyPath,
-		AuthMode:    sshlib.AuthModeNone,
 		Shell:       "/bin/sh",
 	}
 
@@ -341,14 +346,11 @@ func TestNewServerWithInvalidConfig(t *testing.T) {
 		expectError bool
 	}{
 		{
-			name: "invalid config - password auth without username",
+			name: "invalid shell path",
 			config: &sshlib.Config{
 				ListenAddr:  "127.0.0.1:2222",
 				HostKeyPath: "/tmp/key",
-				AuthMode:    sshlib.AuthModePassword,
-				Username:    "",
-				Password:    "",
-				Shell:       "/bin/sh",
+				Shell:       "/this/path/does/not/exist",
 			},
 			expectError: true,
 		},

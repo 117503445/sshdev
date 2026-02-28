@@ -25,22 +25,6 @@ func (c *Config) Validate() error {
 	return validateConfig(c)
 }
 
-// ParseAuthMode parses an auth mode string
-func ParseAuthMode(s string) AuthMode {
-	switch s {
-	case "password":
-		return AuthModePassword
-	case "publickey", "public_key", "pubkey":
-		return AuthModePublicKey
-	case "none":
-		return AuthModeNone
-	case "all":
-		return AuthModeAll
-	default:
-		return AuthModePassword
-	}
-}
-
 var (
 	// ErrInvalidConfig is returned when the configuration is invalid
 	ErrInvalidConfig = errors.New("invalid configuration")

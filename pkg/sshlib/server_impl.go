@@ -19,9 +19,9 @@ func newServer(cfg *Config) (Server, error) {
 	internalCfg := &types.Config{
 		ListenAddr:           cfg.ListenAddr,
 		HostKeyPath:          cfg.HostKeyPath,
-		AuthMode:             types.AuthMode(cfg.AuthMode),
-		Username:             cfg.Username,
+		HostKeyContent:       cfg.HostKeyContent,
 		Password:             cfg.Password,
+		AuthorizedKeysFiles:  cfg.AuthorizedKeysFiles,
 		AuthorizedKeys:       cfg.AuthorizedKeys,
 		Shell:                cfg.Shell,
 		DisablePortForward:   cfg.DisablePortForward,
@@ -48,27 +48,11 @@ func (s *internalServer) Stop() {
 
 // validateConfig validates the configuration
 func validateConfig(c *Config) error {
+	// Determine shell
 	if c.Shell == "" {
-		c.Shell = "/bin/bash"
-	}
-
-	// Check password auth requirements
-	if c.AuthMode == AuthModePassword || c.AuthMode == AuthModeAll {
-		if c.Username == "" {
-			return fmt.Errorf("%w: username is required for password authentication", ErrInvalidConfig)
-		}
-		if c.Password == "" && c.AuthMode == AuthModePassword {
-			return fmt.Errorf("%w: password is required for password authentication", ErrInvalidConfig)
-		}
-	}
-
-	// Check public key auth requirements
-	if c.AuthMode == AuthModePublicKey || c.AuthMode == AuthModeAll {
-		if c.AuthorizedKeys == "" {
-			c.AuthorizedKeys = DefaultAuthorizedKeysPath()
-		}
-		if c.AuthorizedKeys == "" {
-			return fmt.Errorf("%w: authorized_keys path is required for public key authentication", ErrInvalidConfig)
+		c.Shell = "/bin/sh"
+		if shell := os.Getenv("SHELL"); shell != "" {
+			c.Shell = shell
 		}
 	}
 

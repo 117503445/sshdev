@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"os/signal"
 	"runtime"
@@ -18,40 +19,59 @@ var cli struct {
 
 type CmdRun struct {
 	ListenAddr          string `name:"listen" help:"listen address" default:"0.0.0.0:2222" env:"SSHDEV_LISTEN"`
-	HostKeyPath         string `name:"host-key" help:"host key file path" default:"./host_key" env:"SSHDEV_HOST_KEY"`
-	AuthMode            string `name:"auth-mode" help:"auth mode (password/publickey/none/all)" default:"password" env:"SSHDEV_AUTH_MODE"`
-	Username            string `name:"username" help:"username for authentication" env:"SSHDEV_USERNAME"`
-	AuthorizedKeys      string `name:"authorized-keys" help:"authorized keys file path" env:"SSHDEV_AUTHORIZED_KEYS"`
-	Shell               string `name:"shell" help:"default shell" env:"SSHDEV_SHELL"`
-	Password            string `name:"password" help:"password for authentication (only from env)" env:"SSHDEV_PASSWORD"`
+	HostKeyPath         string `name:"host-key" help:"host key file path" env:"SSHDEV_HOST_KEY_PATH"`
+	HostKeyContent      string `name:"host-key-content" help:"host key content (PEM format)" env:"SSHDEV_HOST_KEY"`
+	Password            string `name:"password" help:"password for authentication" env:"SSHDEV_PASSWORD"`
+	AuthorizedKeysFiles string `name:"authorized-keys-files" help:"authorized keys file paths (colon-separated)" env:"SSHDEV_AUTHORIZED_KEYS_FILES"`
+	AuthorizedKeys      string `name:"authorized-keys" help:"authorized keys content (newline-separated)" env:"SSHDEV_AUTHORIZED_KEYS"`
+	Shell               string `name:"shell" help:"default shell (empty = current user's default)" env:"SSHDEV_SHELL"`
+	ConfigJSON          string `name:"config-json" help:"JSON configuration" env:"SSHDEV_CONFIG_JSON"`
+}
+
+// JSONConfig represents the JSON configuration structure
+type JSONConfig struct {
+	ListenAddr          string `json:"listenAddr"`
+	HostKeyPath         string `json:"hostKeyPath"`
+	HostKeyContent      string `json:"hostKeyContent"`
+	Password            string `json:"password"`
+	AuthorizedKeysFiles string `json:"authorizedKeysFiles"`
+	AuthorizedKeys      string `json:"authorizedKeys"`
+	Shell               string `json:"shell"`
 }
 
 func (cmd *CmdRun) Run() error {
 	glog.InitZeroLog()
 
-	// Set default shell based on OS
-	shell := cmd.Shell
-	if shell == "" {
-		shell = defaultShell()
+	cfg := &sshlib.Config{}
+
+	// First, try to load from JSON config
+	if cmd.ConfigJSON != "" {
+		var jsonCfg JSONConfig
+		if err := json.Unmarshal([]byte(cmd.ConfigJSON), &jsonCfg); err != nil {
+			log.Warn().Err(err).Msg("failed to parse SSHDEV_CONFIG_JSON, ignoring")
+		} else {
+			applyJSONConfig(cfg, &jsonCfg)
+		}
 	}
 
-	cfg := &sshlib.Config{
-		ListenAddr:     cmd.ListenAddr,
-		HostKeyPath:    cmd.HostKeyPath,
-		AuthMode:       sshlib.ParseAuthMode(cmd.AuthMode),
-		Username:       cmd.Username,
-		AuthorizedKeys: cmd.AuthorizedKeys,
-		Shell:          shell,
-		Password:       cmd.Password,
-	}
+	// Then, apply command line / env overrides (these take precedence)
+	applyCLIConfig(cfg, cmd)
 
-	if cfg.AuthorizedKeys == "" {
-		cfg.AuthorizedKeys = sshlib.DefaultAuthorizedKeysPath()
+	// Set default shell based on OS if still empty
+	if cfg.Shell == "" {
+		cfg.Shell = defaultShell()
 	}
 
 	if err := cfg.Validate(); err != nil {
 		return err
 	}
+
+	log.Info().
+		Str("listen", cfg.ListenAddr).
+		Bool("passwordAuth", cfg.HasPasswordAuth()).
+		Bool("publicKeyAuth", cfg.HasPublicKeyAuth()).
+		Str("shell", cfg.Shell).
+		Msg("Starting SSH server")
 
 	server, err := sshlib.NewServer(cfg)
 	if err != nil {
@@ -72,13 +92,68 @@ func (cmd *CmdRun) Run() error {
 	return server.Start()
 }
 
+// applyJSONConfig applies JSON configuration to the config struct
+func applyJSONConfig(cfg *sshlib.Config, jsonCfg *JSONConfig) {
+	if jsonCfg.ListenAddr != "" {
+		cfg.ListenAddr = jsonCfg.ListenAddr
+	}
+	if jsonCfg.HostKeyPath != "" {
+		cfg.HostKeyPath = jsonCfg.HostKeyPath
+	}
+	if jsonCfg.HostKeyContent != "" {
+		cfg.HostKeyContent = jsonCfg.HostKeyContent
+	}
+	if jsonCfg.Password != "" {
+		cfg.Password = jsonCfg.Password
+	}
+	if jsonCfg.AuthorizedKeysFiles != "" {
+		cfg.AuthorizedKeysFiles = jsonCfg.AuthorizedKeysFiles
+	}
+	if jsonCfg.AuthorizedKeys != "" {
+		cfg.AuthorizedKeys = jsonCfg.AuthorizedKeys
+	}
+	if jsonCfg.Shell != "" {
+		cfg.Shell = jsonCfg.Shell
+	}
+}
+
+// applyCLIConfig applies CLI/env configuration to the config struct
+func applyCLIConfig(cfg *sshlib.Config, cmd *CmdRun) {
+	if cmd.ListenAddr != "" {
+		cfg.ListenAddr = cmd.ListenAddr
+	}
+	if cmd.HostKeyPath != "" {
+		cfg.HostKeyPath = cmd.HostKeyPath
+	}
+	if cmd.HostKeyContent != "" {
+		cfg.HostKeyContent = cmd.HostKeyContent
+	}
+	if cmd.Password != "" {
+		cfg.Password = cmd.Password
+	}
+	if cmd.AuthorizedKeysFiles != "" {
+		cfg.AuthorizedKeysFiles = cmd.AuthorizedKeysFiles
+	}
+	if cmd.AuthorizedKeys != "" {
+		cfg.AuthorizedKeys = cmd.AuthorizedKeys
+	}
+	if cmd.Shell != "" {
+		cfg.Shell = cmd.Shell
+	}
+}
+
 // defaultShell returns the default shell based on OS
 func defaultShell() string {
+	// Check SHELL env var first
+	if shell := os.Getenv("SHELL"); shell != "" {
+		return shell
+	}
+
 	switch runtime.GOOS {
 	case "windows":
 		return "cmd.exe"
 	default:
-		return "/bin/bash"
+		return "/bin/sh"
 	}
 }
 

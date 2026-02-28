@@ -23,13 +23,9 @@ type Authenticator struct {
 func NewAuthenticator(cfg *types.Config) (*Authenticator, error) {
 	auth := &Authenticator{cfg: cfg}
 
-	// Load authorized keys if needed
-	if cfg.AuthMode == types.AuthModePublicKey || cfg.AuthMode == types.AuthModeAll {
+	// Load authorized keys if public key auth is enabled
+	if cfg.HasPublicKeyAuth() {
 		if err := auth.loadAuthorizedKeys(context.Background()); err != nil {
-			// Only error if publickey is the only auth mode
-			if cfg.AuthMode == types.AuthModePublicKey {
-				return nil, fmt.Errorf("failed to load authorized keys: %w", err)
-			}
 			log.Warn().Err(err).Msg("failed to load authorized keys")
 		}
 	}
@@ -37,9 +33,38 @@ func NewAuthenticator(cfg *types.Config) (*Authenticator, error) {
 	return auth, nil
 }
 
-// loadAuthorizedKeys loads public keys from the authorized_keys file
+// loadAuthorizedKeys loads public keys from files and content
 func (a *Authenticator) loadAuthorizedKeys(ctx context.Context) error {
-	file, err := os.Open(a.cfg.AuthorizedKeys)
+	// Load from files
+	if a.cfg.AuthorizedKeysFiles != "" {
+		paths := types.ParseAuthorizedKeysFiles(a.cfg.AuthorizedKeysFiles)
+		for _, path := range paths {
+			if err := a.loadAuthorizedKeysFromFile(ctx, path); err != nil {
+				log.Ctx(ctx).Warn().Err(err).Str("path", path).Msg("failed to load authorized keys from file")
+			}
+		}
+	}
+
+	// Load from content
+	if a.cfg.AuthorizedKeys != "" {
+		lines := types.ParseAuthorizedKeysContent(a.cfg.AuthorizedKeys)
+		for _, line := range lines {
+			pubKey, _, _, _, err := ssh.ParseAuthorizedKey([]byte(line))
+			if err != nil {
+				log.Ctx(ctx).Warn().Err(err).Str("line", line).Msg("failed to parse authorized key from content")
+				continue
+			}
+			a.authorizedKeys = append(a.authorizedKeys, pubKey)
+		}
+	}
+
+	log.Ctx(ctx).Info().Int("count", len(a.authorizedKeys)).Msg("loaded authorized keys")
+	return nil
+}
+
+// loadAuthorizedKeysFromFile loads public keys from a single file
+func (a *Authenticator) loadAuthorizedKeysFromFile(ctx context.Context, path string) error {
+	file, err := os.Open(path)
 	if err != nil {
 		return err
 	}
@@ -66,29 +91,17 @@ func (a *Authenticator) loadAuthorizedKeys(ctx context.Context) error {
 		a.authorizedKeys = append(a.authorizedKeys, pubKey)
 	}
 
-	if err := scanner.Err(); err != nil {
-		return err
-	}
-
-	log.Ctx(ctx).Info().Int("count", len(a.authorizedKeys)).Str("path", a.cfg.AuthorizedKeys).Msg("loaded authorized keys")
-	return nil
+	return scanner.Err()
 }
 
 // PasswordCallback returns the password authentication callback
 func (a *Authenticator) PasswordCallback() func(ssh.ConnMetadata, []byte) (*ssh.Permissions, error) {
-	if a.cfg.AuthMode == types.AuthModeNone {
-		return func(c ssh.ConnMetadata, pass []byte) (*ssh.Permissions, error) {
-			log.Info().Str("user", c.User()).Str("client", c.RemoteAddr().String()).Msg("auth success (no-auth mode)")
-			return nil, nil
-		}
-	}
-
-	if a.cfg.AuthMode != types.AuthModePassword && a.cfg.AuthMode != types.AuthModeAll {
+	if !a.cfg.HasPasswordAuth() {
 		return nil
 	}
 
 	return func(c ssh.ConnMetadata, pass []byte) (*ssh.Permissions, error) {
-		if c.User() == a.cfg.Username && string(pass) == a.cfg.Password {
+		if string(pass) == a.cfg.Password {
 			log.Info().Str("user", c.User()).Str("method", "password").Str("client", c.RemoteAddr().String()).Msg("auth success")
 			return nil, nil
 		}
@@ -99,18 +112,7 @@ func (a *Authenticator) PasswordCallback() func(ssh.ConnMetadata, []byte) (*ssh.
 
 // PublicKeyCallback returns the public key authentication callback
 func (a *Authenticator) PublicKeyCallback() func(ssh.ConnMetadata, ssh.PublicKey) (*ssh.Permissions, error) {
-	if a.cfg.AuthMode == types.AuthModeNone {
-		return func(c ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permissions, error) {
-			log.Info().Str("user", c.User()).Str("client", c.RemoteAddr().String()).Msg("auth success (no-auth mode)")
-			return nil, nil
-		}
-	}
-
-	if a.cfg.AuthMode != types.AuthModePublicKey && a.cfg.AuthMode != types.AuthModeAll {
-		return nil
-	}
-
-	if len(a.authorizedKeys) == 0 {
+	if !a.cfg.HasPublicKeyAuth() || len(a.authorizedKeys) == 0 {
 		return nil
 	}
 
@@ -127,9 +129,11 @@ func (a *Authenticator) PublicKeyCallback() func(ssh.ConnMetadata, ssh.PublicKey
 	}
 }
 
-// NoClientAuthCallback returns the no-auth callback for none mode
+// NoClientAuthCallback returns the no-auth callback
+// This is enabled when neither password nor public key auth is configured
 func (a *Authenticator) NoClientAuthCallback() func(ssh.ConnMetadata) (*ssh.Permissions, error) {
-	if a.cfg.AuthMode != types.AuthModeNone {
+	// If any auth method is configured, don't allow no-auth
+	if a.cfg.HasPasswordAuth() || a.cfg.HasPublicKeyAuth() {
 		return nil
 	}
 

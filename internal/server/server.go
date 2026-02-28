@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
-	"encoding/pem"
 	"fmt"
 	"net"
 	"os"
@@ -73,36 +72,36 @@ func NewServer(cfg *types.Config) (*Server, error) {
 
 // loadOrGenerateHostKey loads an existing host key or generates a new one
 func (s *Server) loadOrGenerateHostKey(ctx context.Context) (ssh.Signer, error) {
-	// Try to load existing key
-	keyData, err := os.ReadFile(s.cfg.HostKeyPath)
-	if err == nil {
-		signer, err := ssh.ParsePrivateKey(keyData)
-		if err == nil {
-			log.Ctx(ctx).Info().Str("path", s.cfg.HostKeyPath).Msg("loaded host key")
-			return signer, nil
+	// Priority: HostKeyContent (env) > HostKeyPath (file) > generate random
+
+	// 1. Try HostKeyContent (direct key content from env)
+	if s.cfg.HostKeyContent != "" {
+		signer, err := ssh.ParsePrivateKey([]byte(s.cfg.HostKeyContent))
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse SSHDEV_HOST_KEY: %w", err)
 		}
-		log.Ctx(ctx).Warn().Err(err).Msg("failed to parse host key, generating new one")
+		log.Ctx(ctx).Info().Msg("loaded host key from SSHDEV_HOST_KEY")
+		return signer, nil
 	}
 
-	// Generate new ED25519 key
-	log.Ctx(ctx).Info().Msg("generating new ED25519 host key")
+	// 2. Try HostKeyPath (file path)
+	if s.cfg.HostKeyPath != "" {
+		keyData, err := os.ReadFile(s.cfg.HostKeyPath)
+		if err == nil {
+			signer, err := ssh.ParsePrivateKey(keyData)
+			if err == nil {
+				log.Ctx(ctx).Info().Str("path", s.cfg.HostKeyPath).Msg("loaded host key from file")
+				return signer, nil
+			}
+			log.Ctx(ctx).Warn().Err(err).Msg("failed to parse host key file, generating new one")
+		}
+	}
+
+	// 3. Generate new ED25519 key (don't save to file)
+	log.Ctx(ctx).Info().Msg("generating new random ED25519 host key")
 	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		return nil, err
-	}
-
-	// Encode to PEM format
-	pemBlock := &pem.Block{
-		Type:  "OPENSSH PRIVATE KEY",
-		Bytes: marshalED25519PrivateKey(privateKey),
-	}
-	keyData = pem.EncodeToMemory(pemBlock)
-
-	// Save to file
-	if err := os.WriteFile(s.cfg.HostKeyPath, keyData, 0600); err != nil {
-		log.Ctx(ctx).Warn().Err(err).Msg("failed to save host key")
-	} else {
-		log.Ctx(ctx).Info().Str("path", s.cfg.HostKeyPath).Msg("saved host key")
 	}
 
 	return ssh.NewSignerFromKey(privateKey)
@@ -191,7 +190,7 @@ func (s *Server) Start() error {
 
 	ctx := context.Background()
 	log.Ctx(ctx).Info().Str("addr", s.cfg.ListenAddr).Msg("SSH server listening")
-	if s.cfg.AuthMode == types.AuthModeNone {
+	if !s.cfg.HasPasswordAuth() && !s.cfg.HasPublicKeyAuth() {
 		log.Ctx(ctx).Warn().Msg("NO AUTHENTICATION MODE ENABLED - ANYONE CAN CONNECT")
 	}
 

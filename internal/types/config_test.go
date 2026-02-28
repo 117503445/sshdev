@@ -5,28 +5,6 @@ import (
 	"testing"
 )
 
-func TestAuthModeString(t *testing.T) {
-	tests := []struct {
-		mode     AuthMode
-		expected string
-	}{
-		{AuthModePassword, "password"},
-		{AuthModePublicKey, "publickey"},
-		{AuthModeNone, "none"},
-		{AuthModeAll, "all"},
-		{-1, "unknown"}, // Unknown mode
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.expected, func(t *testing.T) {
-			result := tt.mode.String()
-			if result != tt.expected {
-				t.Errorf("Expected %s, got %s", tt.expected, result)
-			}
-		})
-	}
-}
-
 func TestConfigValidate(t *testing.T) {
 	// Create a temporary shell for the test
 	tempShell, err := os.CreateTemp("", "shell-test-*")
@@ -48,63 +26,41 @@ func TestConfigValidate(t *testing.T) {
 		expectError bool
 	}{
 		{
-			name: "valid password config",
+			name: "valid config with password auth",
 			config: &Config{
-				AuthMode: AuthModePassword,
-				Username: "test",
 				Password: "test",
 				Shell:    tempShell.Name(),
 			},
 			expectError: false,
 		},
 		{
-			name: "password without username",
+			name: "valid config with public key auth",
 			config: &Config{
-				AuthMode: AuthModePassword,
-				Username: "",
-				Password: "test",
-				Shell:    tempShell.Name(),
+				AuthorizedKeys: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl",
+				Shell:          tempShell.Name(),
 			},
-			expectError: true,
+			expectError: false,
 		},
 		{
-			name: "password without password",
+			name: "valid config with both auth methods",
 			config: &Config{
-				AuthMode: AuthModePassword,
-				Username: "test",
-				Password: "",
-				Shell:    tempShell.Name(),
+				Password:       "test",
+				AuthorizedKeys: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl",
+				Shell:          tempShell.Name(),
 			},
-			expectError: true,
+			expectError: false,
 		},
 		{
-			name: "all mode with username but no password or keys",
+			name: "valid config with no auth",
 			config: &Config{
-				AuthMode: AuthModeAll,
-				Username: "test",
-				Password: "", // This would normally fail because publickey requires authorized keys
-				AuthorizedKeys: "/tmp/keys", // Provide a fake path to satisfy the check
-				Shell:    tempShell.Name(),
-			},
-			expectError: false, // In ALL mode, with fake keys path it should pass
-		},
-		{
-			name: "none auth mode",
-			config: &Config{
-				AuthMode: AuthModeNone,
-				Username: "",
-				Password: "",
-				Shell:    tempShell.Name(),
+				Shell: tempShell.Name(),
 			},
 			expectError: false,
 		},
 		{
 			name: "invalid shell path",
 			config: &Config{
-				AuthMode: AuthModeNone,
-				Username: "",
-				Password: "",
-				Shell:    "/this/path/does/not/exist",
+				Shell: "/this/path/does/not/exist",
 			},
 			expectError: true,
 		},
@@ -118,6 +74,160 @@ func TestConfigValidate(t *testing.T) {
 			}
 			if !tt.expectError && err != nil {
 				t.Errorf("Unexpected validation error: %v", err)
+			}
+		})
+	}
+}
+
+func TestHasPasswordAuth(t *testing.T) {
+	tests := []struct {
+		name     string
+		config   *Config
+		expected bool
+	}{
+		{
+			name:     "with password",
+			config:   &Config{Password: "secret"},
+			expected: true,
+		},
+		{
+			name:     "without password",
+			config:   &Config{Password: ""},
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := tt.config.HasPasswordAuth()
+			if result != tt.expected {
+				t.Errorf("Expected %v, got %v", tt.expected, result)
+			}
+		})
+	}
+}
+
+func TestHasPublicKeyAuth(t *testing.T) {
+	tests := []struct {
+		name     string
+		config   *Config
+		expected bool
+	}{
+		{
+			name:     "with authorized keys files",
+			config:   &Config{AuthorizedKeysFiles: "/home/user/.ssh/authorized_keys"},
+			expected: true,
+		},
+		{
+			name:     "with authorized keys content",
+			config:   &Config{AuthorizedKeys: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl"},
+			expected: true,
+		},
+		{
+			name:     "with both",
+			config:   &Config{AuthorizedKeysFiles: "/home/user/.ssh/authorized_keys", AuthorizedKeys: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl"},
+			expected: true,
+		},
+		{
+			name:     "without public key auth",
+			config:   &Config{},
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := tt.config.HasPublicKeyAuth()
+			if result != tt.expected {
+				t.Errorf("Expected %v, got %v", tt.expected, result)
+			}
+		})
+	}
+}
+
+func TestParseAuthorizedKeysFiles(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected []string
+	}{
+		{
+			name:     "empty string",
+			input:    "",
+			expected: nil,
+		},
+		{
+			name:     "single path",
+			input:    "/home/user/.ssh/authorized_keys",
+			expected: []string{"/home/user/.ssh/authorized_keys"},
+		},
+		{
+			name:     "multiple paths",
+			input:    "/home/user/.ssh/authorized_keys:/etc/ssh/authorized_keys",
+			expected: []string{"/home/user/.ssh/authorized_keys", "/etc/ssh/authorized_keys"},
+		},
+		{
+			name:     "paths with spaces",
+			input:    "  /path/one  :  /path/two  ",
+			expected: []string{"/path/one", "/path/two"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := ParseAuthorizedKeysFiles(tt.input)
+			if len(result) != len(tt.expected) {
+				t.Errorf("Expected %d paths, got %d", len(tt.expected), len(result))
+				return
+			}
+			for i, p := range result {
+				if p != tt.expected[i] {
+					t.Errorf("Path %d: expected %q, got %q", i, tt.expected[i], p)
+				}
+			}
+		})
+	}
+}
+
+func TestParseAuthorizedKeysContent(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected []string
+	}{
+		{
+			name:     "empty string",
+			input:    "",
+			expected: nil,
+		},
+		{
+			name:     "single key",
+			input:    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl",
+			expected: []string{"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl"},
+		},
+		{
+			name:     "multiple keys",
+			input:    "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl\nssh-ed25519 BBBBC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl",
+			expected: []string{"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl", "ssh-ed25519 BBBBC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl"},
+		},
+		{
+			name:     "keys with comments",
+			input:    "# This is a comment\nssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl\n# Another comment",
+			expected: []string{"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := ParseAuthorizedKeysContent(tt.input)
+			if len(result) != len(tt.expected) {
+				t.Errorf("Expected %d keys, got %d", len(tt.expected), len(result))
+				return
+			}
+			for i, k := range result {
+				if k != tt.expected[i] {
+					t.Errorf("Key %d: expected %q, got %q", i, tt.expected[i], k)
+				}
 			}
 		})
 	}

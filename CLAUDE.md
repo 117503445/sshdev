@@ -9,9 +9,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 1. 分析用户请求
 2. 运行 `find docs/ -name "*.md" | sort` 查看可用文档
 3. 阅读与当前任务相关的文档
-4. 制定执行计划，向用户确认
-5. 用户确认后执行任务
-6. 任务执行完毕，更新文档，向用户报告结果
+4. 制定执行计划，包含测试步骤
+5. 任务执行完毕，测试通过 `task test:all`，更新文档，向用户报告结果
+
+尽量不要打扰用户。但如果遇到了重大的设计问题，请及时向用户报告。
 
 # KEY FILES
 
