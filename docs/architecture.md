@@ -6,6 +6,10 @@
 sshdev/
 ├── cmd/sshdev/          # CLI 入口点
 ├── pkg/sshlib/          # 公共库 API（对外暴露 Server 接口）
+├── embedded/            # 嵌入资源
+│   ├── embed.go         # 嵌入代码
+│   ├── host_key         # 内置 ED25519 主机密钥
+│   └── host_key.pub     # 内置主机公钥
 ├── internal/            # 内部实现
 │   ├── auth/            # 认证模块
 │   ├── buildinfo/       # 构建信息

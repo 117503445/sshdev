@@ -8,24 +8,36 @@
 ```bash
 task build:bin
 # 或者
-go build -o sshdev ./cmd/dev-sshd
+go build -o sshdev ./cmd/sshdev
 ```
 
 ### 使用方式
 
+#### 无认证模式（默认）
+```bash
+./sshdev run
+```
+
 #### 密码认证模式
 ```bash
-SSHDEV_USERNAME=vscode SSHDEV_PASSWORD=secret ./sshdev run
+SSHDEV_PASSWORD=secret ./sshdev run
 ```
 
 #### 公钥认证模式
 ```bash
-./sshdev run --auth-mode=publickey --authorized-keys=~/.ssh/authorized_keys
+SSHDEV_AUTHORIZED_KEYS_FILES=~/.ssh/authorized_keys ./sshdev run
+# 或直接指定公钥内容
+SSHDEV_AUTHORIZED_KEYS="ssh-ed25519 AAAAC3..." ./sshdev run
 ```
 
-#### 无认证模式（仅开发环境）
+#### 混合认证（密码 + 公钥）
 ```bash
-./sshdev run --auth-mode=none
+SSHDEV_PASSWORD=secret SSHDEV_AUTHORIZED_KEYS_FILES=~/.ssh/authorized_keys ./sshdev run
+```
+
+#### 使用内置主机密钥
+```bash
+SSHDEV_HOST_KEY_BUILTIN=1 ./sshdev run
 ```
 
 #### 连接服务器
@@ -35,15 +47,24 @@ ssh -p 2222 user@host
 
 ### 配置参数
 
-| 环境变量 | 说明 |
-|---------|------|
-| SSHDEV_LISTEN | 监听地址（默认：0.0.0.0:2222） |
-| SSHDEV_USERNAME | 认证用户名 |
-| SSHDEV_PASSWORD | 认证密码 |
-| SSHDEV_AUTH_MODE | 认证模式（password/publickey/none/all） |
-| SSHDEV_HOST_KEY | Host key 文件路径 |
-| SSHDEV_SHELL | 默认 shell（默认：/bin/bash） |
-| SSHDEV_AUTHORIZED_KEYS | 授权公钥文件路径 |
+| 环境变量 | 说明 | 默认值 |
+|---------|------|--------|
+| SSHDEV_LISTEN | 监听地址 | `0.0.0.0:2222` |
+| SSHDEV_PASSWORD | 认证密码（设置后启用密码认证） | - |
+| SSHDEV_AUTHORIZED_KEYS_FILES | 授权公钥文件路径（冒号分隔） | - |
+| SSHDEV_AUTHORIZED_KEYS | 授权公钥内容（换行分隔） | - |
+| SSHDEV_HOST_KEY | 主机密钥内容（PEM 格式） | 随机生成 |
+| SSHDEV_HOST_KEY_PATH | 主机密钥文件路径 | - |
+| SSHDEV_HOST_KEY_BUILTIN | 使用内置主机密钥（任意非空值启用） | - |
+| SSHDEV_SHELL | 默认 shell | 当前用户默认 shell |
+| SSHDEV_CONFIG_JSON | JSON 格式完整配置 | - |
+
+### 主机密钥优先级
+
+1. `SSHDEV_HOST_KEY` - 环境变量指定的密钥内容
+2. `SSHDEV_HOST_KEY_BUILTIN` - 内置的 ED25519 密钥
+3. `SSHDEV_HOST_KEY_PATH` - 密钥文件路径
+4. 随机生成 - 每次启动生成新密钥
 
 ## 作为 Go 库
 
@@ -64,9 +85,6 @@ import (
 func main() {
     cfg := &sshlib.Config{
         ListenAddr:     "0.0.0.0:2222",
-        HostKeyPath:    "./host_key",
-        AuthMode:       sshlib.AuthModePassword,
-        Username:       "user",
         Password:       "secret",
         Shell:          "/bin/bash",
     }
@@ -88,15 +106,15 @@ func main() {
 ### 库 API
 
 #### 类型
-- `AuthMode`: 认证模式（Password、PublicKey、None、All）
 - `Config`: 服务器配置
 - `Server`: 服务器接口，包含 Start() 和 Stop() 方法
 
 #### 函数
 - `NewServer(cfg *Config) (Server, error)`: 创建新的 SSH 服务器
-- `ParseAuthMode(s string) AuthMode`: 解析认证模式字符串
 - `DefaultAuthorizedKeysPath() string`: 返回默认的 authorized_keys 路径
 - `Config.Validate() error`: 验证配置
+- `Config.HasPasswordAuth() bool`: 是否启用密码认证
+- `Config.HasPublicKeyAuth() bool`: 是否启用公钥认证
 
 #### 错误
 - `ErrInvalidConfig`: 配置无效时返回
