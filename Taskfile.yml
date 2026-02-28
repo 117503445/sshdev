@@ -2,6 +2,10 @@ version: 3
 
 dotenv: [".env"]
 
+tasks:
+  default:
+    deps: ["run:local"]
+
 includes:
   base:
     taskfile: ./scripts/tasks/base

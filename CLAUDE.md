@@ -10,7 +10,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 2. 运行 `find docs/ -name "*.md" | sort` 查看可用文档
 3. 阅读与当前任务相关的文档
 4. 制定执行计划，包含测试步骤
-5. 任务执行完毕，测试通过 `task test:all`，更新 `docs` `README` 文档，向用户报告结果
+5. 任务执行完毕，测试通过 `task test:all`，更新 `docs` `README` 文档，修改 `scripts/tasks` 任务，向用户报告结果
 
 尽量不要打扰用户。但如果遇到了重大的设计问题，请及时向用户报告。
 
