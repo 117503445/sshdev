@@ -1,6 +1,7 @@
 package sshlib_test
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net"
@@ -85,7 +86,7 @@ func TestLocalPortForwarding(t *testing.T) {
 
 	done := make(chan bool)
 	go func() {
-		if err := srv.Start(); err != nil {
+		if err := srv.Start(context.Background()); err != nil {
 			t.Errorf("Server failed to start: %v", err)
 		}
 		done <- true
@@ -188,7 +189,7 @@ func TestLocalPortForwardingDisabled(t *testing.T) {
 
 	done := make(chan bool)
 	go func() {
-		if err := srv.Start(); err != nil {
+		if err := srv.Start(context.Background()); err != nil {
 			t.Errorf("Server failed to start: %v", err)
 		}
 		done <- true
@@ -264,7 +265,7 @@ func TestRemotePortForwarding(t *testing.T) {
 
 	done := make(chan bool)
 	go func() {
-		if err := srv.Start(); err != nil {
+		if err := srv.Start(context.Background()); err != nil {
 			t.Errorf("Server failed to start: %v", err)
 		}
 		done <- true
@@ -385,7 +386,7 @@ func TestRemotePortForwardingDisabled(t *testing.T) {
 
 	done := make(chan bool)
 	go func() {
-		if err := srv.Start(); err != nil {
+		if err := srv.Start(context.Background()); err != nil {
 			t.Errorf("Server failed to start: %v", err)
 		}
 		done <- true

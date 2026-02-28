@@ -192,14 +192,13 @@ func appendUint32(b []byte, v uint32) []byte {
 }
 
 // Start starts the SSH server
-func (s *Server) Start() error {
+func (s *Server) Start(ctx context.Context) error {
 	var err error
 	s.listener, err = net.Listen("tcp", s.cfg.ListenAddr)
 	if err != nil {
 		return fmt.Errorf("failed to listen: %w", err)
 	}
 
-	ctx := context.Background()
 	log.Ctx(ctx).Info().Str("addr", s.cfg.ListenAddr).Msg("SSH server listening")
 	if !s.cfg.HasPasswordAuth() && !s.cfg.HasPublicKeyAuth() {
 		log.Ctx(ctx).Warn().Msg("NO AUTHENTICATION MODE ENABLED - ANYONE CAN CONNECT")
@@ -218,12 +217,12 @@ func (s *Server) Start() error {
 		}
 
 		s.wg.Add(1)
-		go s.handleConnection(conn)
+		go s.handleConnection(ctx, conn)
 	}
 }
 
 // handleConnection handles a single SSH connection
-func (s *Server) handleConnection(conn net.Conn) {
+func (s *Server) handleConnection(ctx context.Context, conn net.Conn) {
 	log.Info().Str("remote", conn.RemoteAddr().String()).Msg("[DEBUG] handleConnection: starting")
 
 	defer func() {
@@ -235,7 +234,6 @@ func (s *Server) handleConnection(conn net.Conn) {
 		log.Info().Str("remote", conn.RemoteAddr().String()).Msg("[DEBUG] handleConnection: conn.Close() called")
 	}()
 
-	ctx := context.Background()
 	log.Ctx(ctx).Info().Str("remote", conn.RemoteAddr().String()).Msg("new connection")
 
 	// Perform SSH handshake

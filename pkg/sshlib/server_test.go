@@ -1,6 +1,7 @@
 package sshlib_test
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"os"
@@ -38,7 +39,7 @@ func TestNewServer(t *testing.T) {
 
 	done := make(chan bool)
 	go func() {
-		if err := srv.Start(); err != nil {
+		if err := srv.Start(context.Background()); err != nil {
 			t.Errorf("Server failed to start: %v", err)
 		}
 		done <- true
@@ -238,7 +239,7 @@ func TestShellExitDisconnect(t *testing.T) {
 
 	done := make(chan bool)
 	go func() {
-		if err := srv.Start(); err != nil {
+		if err := srv.Start(context.Background()); err != nil {
 			t.Errorf("Server failed to start: %v", err)
 		}
 		done <- true

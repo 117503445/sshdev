@@ -1,13 +1,14 @@
 package sshlib
 
 import (
+	"context"
 	"errors"
 )
 
 // Server represents an SSH server
 type Server interface {
 	// Start starts the SSH server
-	Start() error
+	Start(ctx context.Context) error
 	// Stop stops the SSH server gracefully
 	Stop()
 }

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"os/signal"
@@ -91,7 +92,7 @@ func (cmd *CmdRun) Run() error {
 		os.Exit(0)
 	}()
 
-	return server.Start()
+	return server.Start(context.Background())
 }
 
 // applyJSONConfig applies JSON configuration to the config struct

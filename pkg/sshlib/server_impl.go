@@ -1,6 +1,7 @@
 package sshlib
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -38,8 +39,8 @@ func newServer(cfg *Config) (Server, error) {
 }
 
 // Start starts the SSH server
-func (s *internalServer) Start() error {
-	return s.srv.Start()
+func (s *internalServer) Start(ctx context.Context) error {
+	return s.srv.Start(ctx)
 }
 
 // Stop stops the SSH server gracefully
