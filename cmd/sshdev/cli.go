@@ -15,7 +15,7 @@ import (
 )
 
 var cli struct {
-	Run CmdRun `cmd:"" help:"Run SSH server"`
+	Run CmdRun `cmd:"" help:"Run SSH server" default:"1"`
 }
 
 type CmdRun struct {
