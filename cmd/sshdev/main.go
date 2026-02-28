@@ -3,8 +3,9 @@ package main
 import (
 	"context"
 
+	"github.com/117503445/goutils/glog"
 	"github.com/alecthomas/kong"
-	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 )
 
 var Ctx context.Context
@@ -14,10 +15,12 @@ func init() {
 }
 
 func main() {
-	ctx := kong.Parse(&cli)
-	log := zerolog.Ctx(Ctx)
+	// Initialize logger first before any logging
+	glog.InitZeroLog()
 
-	log.Info().Interface("cli", cli).Send()
+	ctx := kong.Parse(&cli)
+
+	log.Info().Interface("cli", cli).Msg("CLI parsed, starting execution")
 
 	if err := ctx.Run(); err != nil {
 		log.Fatal().Err(err).Msg("run failed")

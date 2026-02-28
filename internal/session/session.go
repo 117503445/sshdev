@@ -167,8 +167,15 @@ func handleShellReq(ctx context.Context, req *ssh.Request, channel ssh.Channel, 
 		cmd := exec.Command(cfg.Shell)
 		cmd.Env = state.env
 
+		// Try PTY first (Unix-like systems)
 		ptmx, err := pty.Start(cmd)
 		if err != nil {
+			// PTY not supported (e.g., Windows) - use direct pipes
+			if err == pty.ErrUnsupported {
+				log.Ctx(ctx).Info().Msg("PTY not supported on this platform, using direct pipes")
+				state.mu.Unlock()
+				return runShellWithPipes(ctx, req, channel, cmd)
+			}
 			log.Ctx(ctx).Error().Err(err).Msg("failed to start shell with PTY")
 			req.Reply(false, nil)
 			state.mu.Unlock()
@@ -209,6 +216,32 @@ func handleShellReq(ctx context.Context, req *ssh.Request, channel ssh.Channel, 
 		cmd.Wait()
 	}
 
+	return true
+}
+
+// runShellWithPipes runs a shell using direct stdin/stdout/stderr pipes (for Windows)
+func runShellWithPipes(ctx context.Context, req *ssh.Request, channel ssh.Channel, cmd *exec.Cmd) bool {
+	// On Windows, we need to connect the channel directly to the process
+	cmd.Stdin = channel
+	cmd.Stdout = channel
+	cmd.Stderr = channel
+
+	if err := cmd.Start(); err != nil {
+		log.Ctx(ctx).Error().Err(err).Msg("failed to start shell")
+		req.Reply(false, nil)
+		return true
+	}
+
+	req.Reply(true, nil)
+	log.Ctx(ctx).Info().Msg("Shell started successfully with direct pipes")
+
+	// Wait for the shell to complete
+	err := cmd.Wait()
+	if err != nil {
+		log.Ctx(ctx).Debug().Err(err).Msg("shell exited with error")
+	}
+
+	log.Ctx(ctx).Info().Msg("Shell process completed")
 	return true
 }
 

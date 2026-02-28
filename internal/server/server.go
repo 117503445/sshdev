@@ -31,22 +31,30 @@ type Server struct {
 
 // NewServer creates a new SSH server
 func NewServer(cfg *types.Config) (*Server, error) {
+	log.Info().Msg("Creating new SSH server instance")
+
 	s := &Server{
 		cfg:  cfg,
 		quit: make(chan struct{}),
 	}
 
 	// Load or generate host key
+	log.Info().Msg("Loading or generating host key")
 	hostKey, err := s.loadOrGenerateHostKey(context.Background())
 	if err != nil {
+		log.Error().Err(err).Msg("Failed to load or generate host key")
 		return nil, fmt.Errorf("failed to load host key: %w", err)
 	}
+	log.Info().Msg("Host key loaded successfully")
 
 	// Create authenticator
+	log.Info().Msg("Creating authenticator")
 	auth, err := auth.NewAuthenticator(cfg)
 	if err != nil {
+		log.Error().Err(err).Msg("Failed to create authenticator")
 		return nil, fmt.Errorf("failed to create authenticator: %w", err)
 	}
+	log.Info().Msg("Authenticator created")
 
 	// Create SSH server config
 	s.sshCfg = &ssh.ServerConfig{}
@@ -55,15 +63,19 @@ func NewServer(cfg *types.Config) (*Server, error) {
 	// Set up authentication callbacks
 	if cb := auth.PasswordCallback(); cb != nil {
 		s.sshCfg.PasswordCallback = cb
+		log.Info().Msg("Password authentication enabled")
 	}
 	if cb := auth.PublicKeyCallback(); cb != nil {
 		s.sshCfg.PublicKeyCallback = cb
+		log.Info().Msg("Public key authentication enabled")
 	}
 	if cb := auth.NoClientAuthCallback(); cb != nil {
 		s.sshCfg.NoClientAuth = true
 		s.sshCfg.NoClientAuthCallback = cb
+		log.Info().Msg("No client authentication enabled (insecure)")
 	}
 
+	log.Info().Msg("SSH server instance created successfully")
 	return s, nil
 }
 
@@ -116,25 +128,30 @@ func (s *Server) loadOrGenerateHostKey(ctx context.Context) (ssh.Signer, error) 
 
 // Start starts the SSH server
 func (s *Server) Start(ctx context.Context) error {
+	log.Info().Str("addr", s.cfg.ListenAddr).Msg("Starting to listen on TCP address")
+
 	var err error
 	s.listener, err = net.Listen("tcp", s.cfg.ListenAddr)
 	if err != nil {
+		log.Error().Err(err).Str("addr", s.cfg.ListenAddr).Msg("Failed to listen on TCP address")
 		return fmt.Errorf("failed to listen: %w", err)
 	}
 
-	log.Ctx(ctx).Info().Str("addr", s.cfg.ListenAddr).Msg("SSH server listening")
+	log.Info().Str("addr", s.cfg.ListenAddr).Msg("SSH server listening")
 	if !s.cfg.HasPasswordAuth() && !s.cfg.HasPublicKeyAuth() {
-		log.Ctx(ctx).Warn().Msg("NO AUTHENTICATION MODE ENABLED - ANYONE CAN CONNECT")
+		log.Warn().Msg("NO AUTHENTICATION MODE ENABLED - ANYONE CAN CONNECT")
 	}
 
+	log.Info().Msg("Entering main accept loop")
 	for {
 		conn, err := s.listener.Accept()
 		if err != nil {
 			select {
 			case <-s.quit:
+				log.Info().Msg("Accept loop exiting due to quit signal")
 				return nil
 			default:
-				log.Ctx(ctx).Error().Err(err).Msg("failed to accept connection")
+				log.Error().Err(err).Msg("failed to accept connection")
 				continue
 			}
 		}
