@@ -109,13 +109,6 @@ func (fm *ForwardManager) handleForwardedConnection(ctx context.Context, conn ne
 		OriginPort: uint32(remoteAddr.Port),
 	}
 
-	log.Ctx(ctx).Debug().
-		Str("bind_addr", bindAddr).
-		Uint32("bind_port", bindPort).
-		Str("origin_addr", remoteAddr.IP.String()).
-		Int("origin_port", remoteAddr.Port).
-		Msg("opening forwarded-tcpip channel")
-
 	channel, requests, err := fm.conn.OpenChannel("forwarded-tcpip", ssh.Marshal(payload))
 	if err != nil {
 		log.Ctx(ctx).Error().Err(err).Msg("failed to open forwarded-tcpip channel")
@@ -142,7 +135,6 @@ func (fm *ForwardManager) handleForwardedConnection(ctx context.Context, conn ne
 	}()
 
 	wg.Wait()
-	log.Ctx(ctx).Debug().Str("bind_addr", bindAddr).Msg("forwarded connection closed")
 }
 
 // CancelForward cancels a remote port forward
@@ -181,8 +173,7 @@ func (fm *ForwardManager) Close() {
 	fm.mu.Lock()
 	defer fm.mu.Unlock()
 
-	for addr, listener := range fm.listeners {
-		log.Debug().Str("addr", addr).Msg("closing forward listener")
+	for _, listener := range fm.listeners {
 		listener.Close()
 	}
 	fm.listeners = nil
