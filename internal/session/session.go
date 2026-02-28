@@ -1,12 +1,14 @@
 package session
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
 	"net"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 	"sync"
 
@@ -221,10 +223,26 @@ func handleShellReq(ctx context.Context, req *ssh.Request, channel ssh.Channel, 
 
 // runShellWithPipes runs a shell using direct stdin/stdout/stderr pipes (for Windows)
 func runShellWithPipes(ctx context.Context, req *ssh.Request, channel ssh.Channel, cmd *exec.Cmd) bool {
-	// On Windows, we need to connect the channel directly to the process
-	cmd.Stdin = channel
-	cmd.Stdout = channel
-	cmd.Stderr = channel
+	stdinPipe, err := cmd.StdinPipe()
+	if err != nil {
+		log.Ctx(ctx).Error().Err(err).Msg("failed to create stdin pipe")
+		req.Reply(false, nil)
+		return true
+	}
+
+	stdoutPipe, err := cmd.StdoutPipe()
+	if err != nil {
+		log.Ctx(ctx).Error().Err(err).Msg("failed to create stdout pipe")
+		req.Reply(false, nil)
+		return true
+	}
+
+	stderrPipe, err := cmd.StderrPipe()
+	if err != nil {
+		log.Ctx(ctx).Error().Err(err).Msg("failed to create stderr pipe")
+		req.Reply(false, nil)
+		return true
+	}
 
 	if err := cmd.Start(); err != nil {
 		log.Ctx(ctx).Error().Err(err).Msg("failed to start shell")
@@ -233,16 +251,73 @@ func runShellWithPipes(ctx context.Context, req *ssh.Request, channel ssh.Channe
 	}
 
 	req.Reply(true, nil)
-	log.Ctx(ctx).Info().Msg("Shell started successfully with direct pipes")
+	log.Ctx(ctx).Info().Msg("Shell started successfully with pipes")
+
+	var wg sync.WaitGroup
+
+	// Copy from channel to stdin (write user input)
+	// On Windows, convert \r to \r\n for proper line endings
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if runtime.GOOS == "windows" {
+			copyWithCRTranslation(stdinPipe, channel)
+		} else {
+			io.Copy(stdinPipe, channel)
+		}
+		stdinPipe.Close()
+	}()
+
+	// Copy from stdout to channel (read shell output)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		io.Copy(channel, stdoutPipe)
+	}()
+
+	// Copy from stderr to channel (read shell errors)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		io.Copy(channel, stderrPipe)
+	}()
+
+	wg.Wait()
 
 	// Wait for the shell to complete
-	err := cmd.Wait()
+	err = cmd.Wait()
 	if err != nil {
 		log.Ctx(ctx).Debug().Err(err).Msg("shell exited with error")
 	}
 
 	log.Ctx(ctx).Info().Msg("Shell process completed")
 	return true
+}
+
+// copyWithCRTranslation copies from src to dst, translating \r to \r\n
+// This is needed for Windows shells that expect \r\n line endings
+func copyWithCRTranslation(dst io.Writer, src io.Reader) {
+	buf := make([]byte, 32*1024)
+	for {
+		n, err := src.Read(buf)
+		if n > 0 {
+			// Replace \r with \r\n (but not \r\n -> \r\r\n)
+			data := buf[:n]
+			// First replace \r\n with a placeholder to avoid double conversion
+			data = bytes.ReplaceAll(data, []byte("\r\n"), []byte("\x00N\x00"))
+			// Then replace standalone \r with \r\n
+			data = bytes.ReplaceAll(data, []byte("\r"), []byte("\r\n"))
+			// Restore the original \r\n
+			data = bytes.ReplaceAll(data, []byte("\x00N\x00"), []byte("\r\n"))
+
+			if _, writeErr := dst.Write(data); writeErr != nil {
+				return
+			}
+		}
+		if err != nil {
+			return
+		}
+	}
 }
 
 // handleExecReq handles an exec request

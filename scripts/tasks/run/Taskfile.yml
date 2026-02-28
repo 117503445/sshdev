@@ -1,21 +1,8 @@
 version: 3
 
 tasks:
-  dev:
-    desc: "开发模式运行"
-    deps: [":base:clear", ":build:bin"]
-    cmds:
-      - |
-        SSHDEV_USERNAME=test SSHDEV_PASSWORD=test ./data/cli/sshdev run --listen=":2222" --host-key="./host_key" --auth-mode="password"
-
-  noauth:
-    desc: "无认证模式运行（测试用）"
-    deps: [":base:clear", ":build:bin"]
-    cmds:
-      - ./data/cli/sshdev run --auth-mode="none"
-
   local:
     desc: "使用本地配置运行"
     deps: [":base:clear", ":build:bin"]
     cmds:
-      - ./data/cli/sshdev run
+      - ./data/cli/sshdev run --host-key-builtin
