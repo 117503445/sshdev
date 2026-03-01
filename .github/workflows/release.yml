@@ -53,14 +53,15 @@ jobs:
           CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o ./data/release/sshdev-linux-arm64 ./cmd/sshdev
           GOOS=darwin GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o ./data/release/sshdev-darwin-amd64 ./cmd/sshdev
           GOOS=darwin GOARCH=arm64 go build -ldflags "${LDFLAGS}" -o ./data/release/sshdev-darwin-arm64 ./cmd/sshdev
-          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o ./data/release/sshdev-windows-amd64.exe ./cmd/sshdev
+          # Windows: name it sshd.exe for VS Code Remote SSH compatibility
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags "${LDFLAGS}" -o ./data/release/sshd.exe ./cmd/sshdev
 
       - name: Prepare release
         if: github.event_name == 'push' && github.ref == 'refs/heads/master'
         run: |
           cp README.md LICENSE ./data/release/
           cd ./data/release
-          sha256sum sshdev-linux-amd64 sshdev-linux-arm64 sshdev-darwin-amd64 sshdev-darwin-arm64 sshdev-windows-amd64.exe > checksums.txt
+          sha256sum sshdev-linux-amd64 sshdev-linux-arm64 sshdev-darwin-amd64 sshdev-darwin-arm64 sshd.exe > checksums.txt
 
       - name: Create Release
         if: github.event_name == 'push' && github.ref == 'refs/heads/master'
@@ -77,7 +78,9 @@ jobs:
             | Linux | ARM64 | `sshdev-linux-arm64` |
             | macOS | Intel | `sshdev-darwin-amd64` |
             | macOS | Apple Silicon | `sshdev-darwin-arm64` |
-            | Windows | AMD64 | `sshdev-windows-amd64.exe` |
+            | Windows | AMD64 | `sshd.exe` |
+
+            **Note for Windows users:** The executable is named `sshd.exe` for VS Code Remote SSH compatibility.
 
             ```bash
             sha256sum -c checksums.txt
@@ -87,7 +90,7 @@ jobs:
             data/release/sshdev-linux-arm64
             data/release/sshdev-darwin-amd64
             data/release/sshdev-darwin-arm64
-            data/release/sshdev-windows-amd64.exe
+            data/release/sshd.exe
             data/release/checksums.txt
           draft: false
           prerelease: false

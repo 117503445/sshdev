@@ -34,6 +34,7 @@ tasks:
       - ./scripts/tasks/**
     generates:
       - ./data/release/sshdev-*
+      - ./data/release/sshd.exe
     cmds:
       - |
         mkdir -p ./data/release
@@ -41,7 +42,8 @@ tasks:
         GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -ldflags "-s -w" -o ./data/release/sshdev-linux-arm64 ./cmd/sshdev
         GOOS=darwin GOARCH=amd64 go build -ldflags "-s -w" -o ./data/release/sshdev-darwin-amd64 ./cmd/sshdev
         GOOS=darwin GOARCH=arm64 go build -ldflags "-s -w" -o ./data/release/sshdev-darwin-arm64 ./cmd/sshdev
-        GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "-s -w" -o ./data/release/sshdev-windows-amd64.exe ./cmd/sshdev
+        # Windows: name it sshd.exe for VS Code Remote SSH compatibility
+        GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "-s -w" -o ./data/release/sshd.exe ./cmd/sshdev
 
   linux:
     desc: "构建 Linux AMD64 静态二进制"

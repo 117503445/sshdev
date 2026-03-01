@@ -253,13 +253,12 @@ func runShellWithPipes(ctx context.Context, req *ssh.Request, channel ssh.Channe
 	req.Reply(true, nil)
 	log.Ctx(ctx).Info().Msg("Shell started successfully with pipes")
 
-	var wg sync.WaitGroup
+	// Use a done channel to signal when shell exits
+	shellDone := make(chan struct{})
 
 	// Copy from channel to stdin (write user input)
 	// On Windows, convert \r to \r\n for proper line endings
-	wg.Add(1)
 	go func() {
-		defer wg.Done()
 		if runtime.GOOS == "windows" {
 			copyWithCRTranslation(stdinPipe, channel)
 		} else {
@@ -269,26 +268,27 @@ func runShellWithPipes(ctx context.Context, req *ssh.Request, channel ssh.Channe
 	}()
 
 	// Copy from stdout to channel (read shell output)
-	wg.Add(1)
 	go func() {
-		defer wg.Done()
 		io.Copy(channel, stdoutPipe)
 	}()
 
 	// Copy from stderr to channel (read shell errors)
-	wg.Add(1)
 	go func() {
-		defer wg.Done()
 		io.Copy(channel, stderrPipe)
 	}()
 
-	wg.Wait()
+	// Wait for the shell to complete in a separate goroutine
+	go func() {
+		err := cmd.Wait()
+		if err != nil {
+			log.Ctx(ctx).Debug().Err(err).Msg("shell exited with error")
+		}
+		close(shellDone)
+	}()
 
-	// Wait for the shell to complete
-	err = cmd.Wait()
-	if err != nil {
-		log.Ctx(ctx).Debug().Err(err).Msg("shell exited with error")
-	}
+	// Wait for shell to exit, then close channel to clean up
+	<-shellDone
+	channel.Close()
 
 	log.Ctx(ctx).Info().Msg("Shell process completed")
 	return true
@@ -329,8 +329,11 @@ func handleExecReq(ctx context.Context, req *ssh.Request, channel ssh.Channel, s
 		return true
 	}
 
+	log.Ctx(ctx).Debug().Str("command", msg.Command).Msg("exec request received")
+
 	state.mu.Lock()
 
+	// On Windows, use direct execution without shell wrapper for better compatibility
 	cmd := exec.Command(cfg.Shell, "-c", msg.Command)
 	cmd.Env = state.env
 
