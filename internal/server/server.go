@@ -31,7 +31,8 @@ type Server struct {
 
 // NewServer creates a new SSH server
 func NewServer(cfg *types.Config) (*Server, error) {
-	log.Info().Msg("Creating new SSH server instance")
+	ctx := context.Background()
+	log.Ctx(ctx).Info().Msg("Creating new SSH server instance")
 
 	s := &Server{
 		cfg:  cfg,
@@ -39,22 +40,22 @@ func NewServer(cfg *types.Config) (*Server, error) {
 	}
 
 	// Load or generate host key
-	log.Info().Msg("Loading or generating host key")
-	hostKey, err := s.loadOrGenerateHostKey(context.Background())
+	log.Ctx(ctx).Info().Msg("Loading or generating host key")
+	hostKey, err := s.loadOrGenerateHostKey(ctx)
 	if err != nil {
-		log.Error().Err(err).Msg("Failed to load or generate host key")
+		log.Ctx(ctx).Error().Err(err).Msg("Failed to load or generate host key")
 		return nil, fmt.Errorf("failed to load host key: %w", err)
 	}
-	log.Info().Msg("Host key loaded successfully")
+	log.Ctx(ctx).Info().Msg("Host key loaded successfully")
 
 	// Create authenticator
-	log.Info().Msg("Creating authenticator")
-	auth, err := auth.NewAuthenticator(cfg)
+	log.Ctx(ctx).Info().Msg("Creating authenticator")
+	auth, err := auth.NewAuthenticatorWithContext(ctx, cfg)
 	if err != nil {
-		log.Error().Err(err).Msg("Failed to create authenticator")
+		log.Ctx(ctx).Error().Err(err).Msg("Failed to create authenticator")
 		return nil, fmt.Errorf("failed to create authenticator: %w", err)
 	}
-	log.Info().Msg("Authenticator created")
+	log.Ctx(ctx).Info().Msg("Authenticator created")
 
 	// Create SSH server config
 	s.sshCfg = &ssh.ServerConfig{}
@@ -63,19 +64,19 @@ func NewServer(cfg *types.Config) (*Server, error) {
 	// Set up authentication callbacks
 	if cb := auth.PasswordCallback(); cb != nil {
 		s.sshCfg.PasswordCallback = cb
-		log.Info().Msg("Password authentication enabled")
+		log.Ctx(ctx).Info().Msg("Password authentication enabled")
 	}
 	if cb := auth.PublicKeyCallback(); cb != nil {
 		s.sshCfg.PublicKeyCallback = cb
-		log.Info().Msg("Public key authentication enabled")
+		log.Ctx(ctx).Info().Msg("Public key authentication enabled")
 	}
 	if cb := auth.NoClientAuthCallback(); cb != nil {
 		s.sshCfg.NoClientAuth = true
 		s.sshCfg.NoClientAuthCallback = cb
-		log.Info().Msg("No client authentication enabled (insecure)")
+		log.Ctx(ctx).Info().Msg("No client authentication enabled (insecure)")
 	}
 
-	log.Info().Msg("SSH server instance created successfully")
+	log.Ctx(ctx).Info().Msg("SSH server instance created successfully")
 	return s, nil
 }
 
@@ -128,30 +129,30 @@ func (s *Server) loadOrGenerateHostKey(ctx context.Context) (ssh.Signer, error) 
 
 // Start starts the SSH server
 func (s *Server) Start(ctx context.Context) error {
-	log.Info().Str("addr", s.cfg.ListenAddr).Msg("Starting to listen on TCP address")
+	log.Ctx(ctx).Info().Str("addr", s.cfg.ListenAddr).Msg("Starting to listen on TCP address")
 
 	var err error
 	s.listener, err = net.Listen("tcp", s.cfg.ListenAddr)
 	if err != nil {
-		log.Error().Err(err).Str("addr", s.cfg.ListenAddr).Msg("Failed to listen on TCP address")
+		log.Ctx(ctx).Error().Err(err).Str("addr", s.cfg.ListenAddr).Msg("Failed to listen on TCP address")
 		return fmt.Errorf("failed to listen: %w", err)
 	}
 
-	log.Info().Str("addr", s.cfg.ListenAddr).Msg("SSH server listening")
+	log.Ctx(ctx).Info().Str("addr", s.cfg.ListenAddr).Msg("SSH server listening")
 	if !s.cfg.HasPasswordAuth() && !s.cfg.HasPublicKeyAuth() {
-		log.Warn().Msg("NO AUTHENTICATION MODE ENABLED - ANYONE CAN CONNECT")
+		log.Ctx(ctx).Warn().Msg("NO AUTHENTICATION MODE ENABLED - ANYONE CAN CONNECT")
 	}
 
-	log.Info().Msg("Entering main accept loop")
+	log.Ctx(ctx).Info().Msg("Entering main accept loop")
 	for {
 		conn, err := s.listener.Accept()
 		if err != nil {
 			select {
 			case <-s.quit:
-				log.Info().Msg("Accept loop exiting due to quit signal")
+				log.Ctx(ctx).Info().Msg("Accept loop exiting due to quit signal")
 				return nil
 			default:
-				log.Error().Err(err).Msg("failed to accept connection")
+				log.Ctx(ctx).Error().Err(err).Msg("failed to accept connection")
 				continue
 			}
 		}
@@ -165,7 +166,7 @@ func (s *Server) Start(ctx context.Context) error {
 func (s *Server) handleConnection(ctx context.Context, conn net.Conn) {
 	// Assign a unique connection ID
 	connID := s.connIDGen.Add(1)
-	ctx = log.With().Uint64("connID", connID).Logger().WithContext(ctx)
+	ctx = log.Ctx(ctx).With().Uint64("connID", connID).Logger().WithContext(ctx)
 
 	defer func() {
 		s.wg.Done()

@@ -20,9 +20,9 @@ func main() {
 
 	ctx := kong.Parse(&cli)
 
-	log.Info().Interface("cli", cli).Msg("CLI parsed, starting execution")
+	log.Ctx(Ctx).Info().Interface("cli", cli).Msg("CLI parsed, starting execution")
 
 	if err := ctx.Run(); err != nil {
-		log.Fatal().Err(err).Msg("run failed")
+		log.Ctx(Ctx).Fatal().Err(err).Msg("run failed")
 	}
 }

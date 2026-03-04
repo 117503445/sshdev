@@ -53,44 +53,44 @@ func (s *internalServer) Stop() {
 }
 
 // validateConfig validates the configuration
-func validateConfig(c *Config) error {
-	log.Info().Msg("Validating configuration")
+func validateConfig(ctx context.Context, c *Config) error {
+	log.Ctx(ctx).Info().Msg("Validating configuration")
 
 	// Determine shell
 	if c.Shell == "" {
 		c.Shell = "/bin/sh"
 		if shell := os.Getenv("SHELL"); shell != "" {
-			log.Info().Str("envShell", shell).Msg("Using SHELL environment variable")
+			log.Ctx(ctx).Info().Str("envShell", shell).Msg("Using SHELL environment variable")
 			c.Shell = shell
 		}
 	}
 
-	log.Info().Str("shell", c.Shell).Msg("Checking if shell exists")
+	log.Ctx(ctx).Info().Str("shell", c.Shell).Msg("Checking if shell exists")
 
 	// Check shell exists
 	// On Windows, if shell is just a filename (like "cmd.exe"), we need to look it up in PATH
 	if runtime.GOOS == "windows" && !filepath.IsAbs(c.Shell) && !containsPathSeparator(c.Shell) {
 		// Try to find the executable in PATH
 		if fullPath, err := exec.LookPath(c.Shell); err == nil {
-			log.Info().Str("shell", c.Shell).Str("fullPath", fullPath).Msg("Found shell in PATH")
+			log.Ctx(ctx).Info().Str("shell", c.Shell).Str("fullPath", fullPath).Msg("Found shell in PATH")
 			c.Shell = fullPath
 		} else {
-			log.Warn().Err(err).Str("shell", c.Shell).Msg("Shell not found in PATH, will try as-is")
+			log.Ctx(ctx).Warn().Err(err).Str("shell", c.Shell).Msg("Shell not found in PATH, will try as-is")
 		}
 	}
 
 	stat, err := os.Stat(c.Shell)
 	if err != nil {
-		log.Error().Err(err).Str("shell", c.Shell).Msg("Shell not found or not accessible")
+		log.Ctx(ctx).Error().Err(err).Str("shell", c.Shell).Msg("Shell not found or not accessible")
 		return fmt.Errorf("%w: shell not found: %s (error: %v)", ErrInvalidConfig, c.Shell, err)
 	}
 
 	if stat.IsDir() {
-		log.Error().Str("shell", c.Shell).Msg("Shell path is a directory, not a file")
+		log.Ctx(ctx).Error().Str("shell", c.Shell).Msg("Shell path is a directory, not a file")
 		return fmt.Errorf("%w: shell path is a directory: %s", ErrInvalidConfig, c.Shell)
 	}
 
-	log.Info().Str("shell", c.Shell).Msg("Shell validated successfully")
+	log.Ctx(ctx).Info().Str("shell", c.Shell).Msg("Shell validated successfully")
 	return nil
 }
 

@@ -17,16 +17,22 @@ import (
 type Authenticator struct {
 	cfg            *types.Config
 	authorizedKeys []ssh.PublicKey
+	ctx            context.Context
 }
 
 // NewAuthenticator creates a new authenticator
 func NewAuthenticator(cfg *types.Config) (*Authenticator, error) {
-	auth := &Authenticator{cfg: cfg}
+	return NewAuthenticatorWithContext(context.Background(), cfg)
+}
+
+// NewAuthenticatorWithContext creates a new authenticator with context
+func NewAuthenticatorWithContext(ctx context.Context, cfg *types.Config) (*Authenticator, error) {
+	auth := &Authenticator{cfg: cfg, ctx: ctx}
 
 	// Load authorized keys if public key auth is enabled
 	if cfg.HasPublicKeyAuth() {
-		if err := auth.loadAuthorizedKeys(context.Background()); err != nil {
-			log.Warn().Err(err).Msg("failed to load authorized keys")
+		if err := auth.loadAuthorizedKeys(ctx); err != nil {
+			log.Ctx(ctx).Warn().Err(err).Msg("failed to load authorized keys")
 		}
 	}
 
@@ -102,10 +108,10 @@ func (a *Authenticator) PasswordCallback() func(ssh.ConnMetadata, []byte) (*ssh.
 
 	return func(c ssh.ConnMetadata, pass []byte) (*ssh.Permissions, error) {
 		if string(pass) == a.cfg.Password {
-			log.Info().Str("user", c.User()).Str("method", "password").Str("client", c.RemoteAddr().String()).Msg("auth success")
+			log.Ctx(a.ctx).Info().Str("user", c.User()).Str("method", "password").Str("client", c.RemoteAddr().String()).Msg("auth success")
 			return nil, nil
 		}
-		log.Warn().Str("user", c.User()).Str("method", "password").Str("client", c.RemoteAddr().String()).Msg("auth failed")
+		log.Ctx(a.ctx).Warn().Str("user", c.User()).Str("method", "password").Str("client", c.RemoteAddr().String()).Msg("auth failed")
 		return nil, fmt.Errorf("authentication failed")
 	}
 }
@@ -120,11 +126,11 @@ func (a *Authenticator) PublicKeyCallback() func(ssh.ConnMetadata, ssh.PublicKey
 		keyBytes := key.Marshal()
 		for _, authorizedKey := range a.authorizedKeys {
 			if string(keyBytes) == string(authorizedKey.Marshal()) {
-				log.Info().Str("user", c.User()).Str("method", "publickey").Str("client", c.RemoteAddr().String()).Msg("auth success")
+				log.Ctx(a.ctx).Info().Str("user", c.User()).Str("method", "publickey").Str("client", c.RemoteAddr().String()).Msg("auth success")
 				return nil, nil
 			}
 		}
-		log.Warn().Str("user", c.User()).Str("method", "publickey").Str("client", c.RemoteAddr().String()).Msg("auth failed")
+		log.Ctx(a.ctx).Warn().Str("user", c.User()).Str("method", "publickey").Str("client", c.RemoteAddr().String()).Msg("auth failed")
 		return nil, fmt.Errorf("authentication failed")
 	}
 }
@@ -138,7 +144,7 @@ func (a *Authenticator) NoClientAuthCallback() func(ssh.ConnMetadata) (*ssh.Perm
 	}
 
 	return func(c ssh.ConnMetadata) (*ssh.Permissions, error) {
-		log.Info().Str("user", c.User()).Str("client", c.RemoteAddr().String()).Msg("auth success (no-auth mode)")
+		log.Ctx(a.ctx).Info().Str("user", c.User()).Str("client", c.RemoteAddr().String()).Msg("auth success (no-auth mode)")
 		return nil, nil
 	}
 }

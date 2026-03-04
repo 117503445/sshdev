@@ -15,15 +15,15 @@ type Server interface {
 
 // NewServer creates a new SSH server with the given configuration
 func NewServer(cfg *Config) (Server, error) {
-	if err := cfg.Validate(); err != nil {
+	if err := cfg.Validate(context.Background()); err != nil {
 		return nil, err
 	}
 	return newServer(cfg)
 }
 
 // Validate validates the configuration
-func (c *Config) Validate() error {
-	return validateConfig(c)
+func (c *Config) Validate(ctx context.Context) error {
+	return validateConfig(ctx, c)
 }
 
 var (
