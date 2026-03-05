@@ -14,11 +14,11 @@ type Server interface {
 }
 
 // NewServer creates a new SSH server with the given configuration
-func NewServer(cfg *Config) (Server, error) {
-	if err := cfg.Validate(context.Background()); err != nil {
+func NewServer(ctx context.Context, cfg *Config) (Server, error) {
+	if err := cfg.Validate(ctx); err != nil {
 		return nil, err
 	}
-	return newServer(cfg)
+	return newServer(ctx, cfg)
 }
 
 // Validate validates the configuration

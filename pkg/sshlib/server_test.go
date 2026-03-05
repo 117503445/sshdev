@@ -32,7 +32,7 @@ func TestNewServer(t *testing.T) {
 		Shell:       "/bin/sh",
 	}
 
-	srv, err := sshlib.NewServer(cfg)
+	srv, err := sshlib.NewServer(context.Background(), cfg)
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
 	}
@@ -232,7 +232,7 @@ func TestShellExitDisconnect(t *testing.T) {
 		Shell:       "/bin/sh",
 	}
 
-	srv, err := sshlib.NewServer(cfg)
+	srv, err := sshlib.NewServer(context.Background(), cfg)
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
 	}
@@ -359,7 +359,7 @@ func TestNewServerWithInvalidConfig(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := sshlib.NewServer(tt.config)
+			_, err := sshlib.NewServer(context.Background(), tt.config)
 			if tt.expectError && err == nil {
 				t.Error("Expected error, but got none")
 			}

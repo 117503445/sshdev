@@ -93,7 +93,7 @@ func (cmd *CmdRun) Run() error {
 		Str("shell", cfg.Shell).
 		Msg("Starting SSH server")
 
-	server, err := sshlib.NewServer(cfg)
+	server, err := sshlib.NewServer(ctx, cfg)
 	if err != nil {
 		log.Ctx(ctx).Error().Err(err).Msg("Failed to create SSH server")
 		return err

@@ -20,7 +20,7 @@ type internalServer struct {
 }
 
 // newServer creates a new server with internal implementation
-func newServer(cfg *Config) (Server, error) {
+func newServer(ctx context.Context, cfg *Config) (Server, error) {
 	internalCfg := &types.Config{
 		ListenAddr:           cfg.ListenAddr,
 		HostKeyPath:          cfg.HostKeyPath,
@@ -34,7 +34,7 @@ func newServer(cfg *Config) (Server, error) {
 		DisableRemoteForward: cfg.DisableRemoteForward,
 	}
 
-	s, err := server.NewServer(internalCfg)
+	s, err := server.NewServer(ctx, internalCfg)
 	if err != nil {
 		return nil, err
 	}

@@ -79,7 +79,7 @@ func TestLocalPortForwarding(t *testing.T) {
 		// DisablePortForward defaults to false (enabled)
 	}
 
-	srv, err := sshlib.NewServer(cfg)
+	srv, err := sshlib.NewServer(context.Background(), cfg)
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
 	}
@@ -182,7 +182,7 @@ func TestLocalPortForwardingDisabled(t *testing.T) {
 		DisablePortForward: true, // Disabled
 	}
 
-	srv, err := sshlib.NewServer(cfg)
+	srv, err := sshlib.NewServer(context.Background(), cfg)
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
 	}
@@ -258,7 +258,7 @@ func TestRemotePortForwarding(t *testing.T) {
 		// DisableRemoteForward defaults to false (enabled)
 	}
 
-	srv, err := sshlib.NewServer(cfg)
+	srv, err := sshlib.NewServer(context.Background(), cfg)
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
 	}
@@ -379,7 +379,7 @@ func TestRemotePortForwardingDisabled(t *testing.T) {
 		DisableRemoteForward: true, // Disabled
 	}
 
-	srv, err := sshlib.NewServer(cfg)
+	srv, err := sshlib.NewServer(context.Background(), cfg)
 	if err != nil {
 		t.Fatalf("Failed to create server: %v", err)
 	}

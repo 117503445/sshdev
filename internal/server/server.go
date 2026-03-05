@@ -21,18 +21,22 @@ import (
 
 // Server represents the SSH server
 type Server struct {
-	cfg        *types.Config
-	sshCfg     *ssh.ServerConfig
-	listener   net.Listener
-	wg         sync.WaitGroup
-	quit       chan struct{}
-	connIDGen  atomic.Uint64
+	cfg       *types.Config
+	sshCfg    *ssh.ServerConfig
+	listener  net.Listener
+	wg        sync.WaitGroup
+	quit      chan struct{}
+	connIDGen atomic.Uint64
 }
 
 // NewServer creates a new SSH server
-func NewServer(cfg *types.Config) (*Server, error) {
-	ctx := context.Background()
+func NewServer(ctx context.Context, cfg *types.Config) (*Server, error) {
 	log.Ctx(ctx).Info().Msg("Creating new SSH server instance")
+
+	// Print configuration
+	log.Ctx(ctx).Info().
+		Interface("config", cfg).
+		Msg("Server configuration")
 
 	s := &Server{
 		cfg:  cfg,
