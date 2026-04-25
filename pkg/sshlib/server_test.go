@@ -29,6 +29,7 @@ func TestNewServer(t *testing.T) {
 	cfg := &sshlib.Config{
 		ListenAddr:  fmt.Sprintf("127.0.0.1:%d", port),
 		HostKeyPath: hostKeyPath,
+		Insecure:    true,
 		Shell:       "/bin/sh",
 	}
 
@@ -101,27 +102,38 @@ func TestConfigValidation(t *testing.T) {
 		{
 			name: "valid config with password auth",
 			config: &sshlib.Config{
-				ListenAddr: "127.0.0.1:2222",
+				ListenAddr:  "127.0.0.1:2222",
 				HostKeyPath: "/tmp/key",
-				Password:   "test",
-				Shell:      "/bin/sh",
-			},
-			expectError: false,
-		},
-		{
-			name: "valid config with no auth",
-			config: &sshlib.Config{
-				ListenAddr: "127.0.0.1:2222",
-				HostKeyPath: "/tmp/key",
+				Password:    "test",
 				Shell:       "/bin/sh",
 			},
 			expectError: false,
 		},
 		{
+			name: "valid config with explicit insecure no auth",
+			config: &sshlib.Config{
+				ListenAddr:  "127.0.0.1:2222",
+				HostKeyPath: "/tmp/key",
+				Insecure:    true,
+				Shell:       "/bin/sh",
+			},
+			expectError: false,
+		},
+		{
+			name: "invalid config with implicit no auth",
+			config: &sshlib.Config{
+				ListenAddr:  "127.0.0.1:2222",
+				HostKeyPath: "/tmp/key",
+				Shell:       "/bin/sh",
+			},
+			expectError: true,
+		},
+		{
 			name: "invalid shell path",
 			config: &sshlib.Config{
-				ListenAddr: "127.0.0.1:2222",
+				ListenAddr:  "127.0.0.1:2222",
 				HostKeyPath: "/tmp/key",
+				Password:    "test",
 				Shell:       "/this/path/does/not/exist",
 			},
 			expectError: true,
@@ -229,6 +241,7 @@ func TestShellExitDisconnect(t *testing.T) {
 	cfg := &sshlib.Config{
 		ListenAddr:  fmt.Sprintf("127.0.0.1:%d", port),
 		HostKeyPath: hostKeyPath,
+		Insecure:    true,
 		Shell:       "/bin/sh",
 	}
 
@@ -351,6 +364,7 @@ func TestNewServerWithInvalidConfig(t *testing.T) {
 			config: &sshlib.Config{
 				ListenAddr:  "127.0.0.1:2222",
 				HostKeyPath: "/tmp/key",
+				Password:    "test",
 				Shell:       "/this/path/does/not/exist",
 			},
 			expectError: true,

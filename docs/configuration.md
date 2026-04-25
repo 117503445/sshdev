@@ -10,6 +10,7 @@
 | `SSHDEV_PASSWORD` | 认证密码（设置后启用密码认证） | - |
 | `SSHDEV_AUTHORIZED_KEYS_FILES` | 授权公钥文件路径（冒号分隔） | - |
 | `SSHDEV_AUTHORIZED_KEYS` | 授权公钥内容（换行分隔） | - |
+| `SSHDEV_INSECURE` | 未配置密码和公钥时允许无认证模式 | - |
 | `SSHDEV_HOST_KEY` | 主机密钥内容（PEM 格式） | 随机生成 |
 | `SSHDEV_HOST_KEY_PATH` | 主机密钥文件路径 | - |
 | `SSHDEV_HOST_KEY_BUILTIN` | 使用内置主机密钥（任意非空值启用） | - |
@@ -18,9 +19,9 @@
 
 ## 认证模式
 
-认证模式根据配置自动确定：
+认证模式根据配置自动确定。未配置密码和公钥时，必须显式启用 `SSHDEV_INSECURE` 或 `--insecure`，否则配置校验会失败。
 
-- **无认证**：未设置 `SSHDEV_PASSWORD` 且未设置公钥配置
+- **无认证**：未设置 `SSHDEV_PASSWORD` 且未设置公钥配置，并显式启用 `SSHDEV_INSECURE` 或 `--insecure`
 - **密码认证**：设置了 `SSHDEV_PASSWORD`
 - **公钥认证**：设置了 `SSHDEV_AUTHORIZED_KEYS_FILES` 或 `SSHDEV_AUTHORIZED_KEYS`
 - **混合认证**：同时设置了密码和公钥配置
@@ -34,10 +35,12 @@
 
 ## 示例
 
-### 无认证模式（默认）
+### 无认证模式（需显式启用）
 
 ```bash
-./sshdev run
+./sshdev run --insecure
+# 或
+SSHDEV_INSECURE=1 ./sshdev run
 ```
 
 ### 密码认证
@@ -69,6 +72,7 @@ SSHDEV_PASSWORD=secret SSHDEV_AUTHORIZED_KEYS_FILES="/home/user/.ssh/authorized_
 
 ```bash
 SSHDEV_CONFIG_JSON='{"listenAddr":":2222","password":"secret","shell":"/bin/bash"}' ./sshdev run
+SSHDEV_CONFIG_JSON='{"listenAddr":":2222","insecure":true,"shell":"/bin/bash"}' ./sshdev run
 ```
 
 ### 指定监听地址

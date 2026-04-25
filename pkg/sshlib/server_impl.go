@@ -29,6 +29,7 @@ func newServer(ctx context.Context, cfg *Config) (Server, error) {
 		Password:             cfg.Password,
 		AuthorizedKeysFiles:  cfg.AuthorizedKeysFiles,
 		AuthorizedKeys:       cfg.AuthorizedKeys,
+		Insecure:             cfg.Insecure,
 		Shell:                cfg.Shell,
 		DisablePortForward:   cfg.DisablePortForward,
 		DisableRemoteForward: cfg.DisableRemoteForward,
@@ -55,6 +56,11 @@ func (s *internalServer) Stop() {
 // validateConfig validates the configuration
 func validateConfig(ctx context.Context, c *Config) error {
 	log.Ctx(ctx).Info().Msg("Validating configuration")
+
+	if !c.HasPasswordAuth() && !c.HasPublicKeyAuth() && !c.Insecure {
+		log.Ctx(ctx).Error().Msg("Authentication is not configured and insecure mode is disabled")
+		return fmt.Errorf("%w: 未配置认证方式：未设置密码或公钥时必须启用 insecure", ErrInvalidConfig)
+	}
 
 	// Determine shell
 	if c.Shell == "" {

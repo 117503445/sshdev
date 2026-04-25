@@ -51,16 +51,25 @@ func TestConfigValidate(t *testing.T) {
 			expectError: false,
 		},
 		{
-			name: "valid config with no auth",
+			name: "valid config with explicit insecure no auth",
 			config: &Config{
-				Shell: tempShell.Name(),
+				Insecure: true,
+				Shell:    tempShell.Name(),
 			},
 			expectError: false,
 		},
 		{
+			name: "invalid config with implicit no auth",
+			config: &Config{
+				Shell: tempShell.Name(),
+			},
+			expectError: true,
+		},
+		{
 			name: "invalid shell path",
 			config: &Config{
-				Shell: "/this/path/does/not/exist",
+				Password: "test",
+				Shell:    "/this/path/does/not/exist",
 			},
 			expectError: true,
 		},

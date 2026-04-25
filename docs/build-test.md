@@ -37,8 +37,7 @@ task format:check       # 仅检查代码 (go vet)
 
 ```bash
 task run:dev            # 开发模式运行 (用户名/密码: test/test)
-task run:noauth         # 无认证模式运行
-task run:local          # 本地配置运行
+task run:local          # 本地无认证模式运行（显式启用 insecure）
 ```
 
 ### 其他

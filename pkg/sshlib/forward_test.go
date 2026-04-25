@@ -75,6 +75,7 @@ func TestLocalPortForwarding(t *testing.T) {
 	cfg := &sshlib.Config{
 		ListenAddr:  fmt.Sprintf("127.0.0.1:%d", sshPort),
 		HostKeyPath: hostKeyPath,
+		Insecure:    true,
 		Shell:       "/bin/sh",
 		// DisablePortForward defaults to false (enabled)
 	}
@@ -178,6 +179,7 @@ func TestLocalPortForwardingDisabled(t *testing.T) {
 	cfg := &sshlib.Config{
 		ListenAddr:         fmt.Sprintf("127.0.0.1:%d", sshPort),
 		HostKeyPath:        hostKeyPath,
+		Insecure:           true,
 		Shell:              "/bin/sh",
 		DisablePortForward: true, // Disabled
 	}
@@ -254,6 +256,7 @@ func TestRemotePortForwarding(t *testing.T) {
 	cfg := &sshlib.Config{
 		ListenAddr:  fmt.Sprintf("127.0.0.1:%d", sshPort),
 		HostKeyPath: hostKeyPath,
+		Insecure:    true,
 		Shell:       "/bin/sh",
 		// DisableRemoteForward defaults to false (enabled)
 	}
@@ -375,6 +378,7 @@ func TestRemotePortForwardingDisabled(t *testing.T) {
 	cfg := &sshlib.Config{
 		ListenAddr:           fmt.Sprintf("127.0.0.1:%d", sshPort),
 		HostKeyPath:          hostKeyPath,
+		Insecure:             true,
 		Shell:                "/bin/sh",
 		DisableRemoteForward: true, // Disabled
 	}

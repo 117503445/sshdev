@@ -16,6 +16,7 @@ type Config struct {
 	Password             string // Password for authentication (from env SSHDEV_PASSWORD)
 	AuthorizedKeysFiles  string // Authorized keys file paths, colon-separated (from env SSHDEV_AUTHORIZED_KEYS_FILES)
 	AuthorizedKeys       string // Authorized keys content, newline-separated (from env SSHDEV_AUTHORIZED_KEYS)
+	Insecure             bool   // 允许在未配置密码和公钥时启用无认证模式
 	Shell                string // Shell to use (from env SSHDEV_SHELL, empty = current user's default)
 	DisablePortForward   bool   // Disable local port forwarding (direct-tcpip), default: enabled
 	DisableRemoteForward bool   // Disable remote port forwarding (tcpip-forward), default: enabled
@@ -33,6 +34,10 @@ func (c *Config) HasPublicKeyAuth() bool {
 
 // Validate validates the configuration
 func (c *Config) Validate() error {
+	if !c.HasPasswordAuth() && !c.HasPublicKeyAuth() && !c.Insecure {
+		return fmt.Errorf("未配置认证方式：未设置密码或公钥时必须启用 insecure")
+	}
+
 	// Determine shell
 	if c.Shell == "" {
 		c.Shell = getDefaultShell()

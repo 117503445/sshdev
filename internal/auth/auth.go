@@ -135,11 +135,10 @@ func (a *Authenticator) PublicKeyCallback() func(ssh.ConnMetadata, ssh.PublicKey
 	}
 }
 
-// NoClientAuthCallback returns the no-auth callback
-// This is enabled when neither password nor public key auth is configured
+// NoClientAuthCallback 返回无认证回调
+// 仅当未配置密码和公钥且显式启用 insecure 时允许无认证
 func (a *Authenticator) NoClientAuthCallback() func(ssh.ConnMetadata) (*ssh.Permissions, error) {
-	// If any auth method is configured, don't allow no-auth
-	if a.cfg.HasPasswordAuth() || a.cfg.HasPublicKeyAuth() {
+	if a.cfg.HasPasswordAuth() || a.cfg.HasPublicKeyAuth() || !a.cfg.Insecure {
 		return nil
 	}
 

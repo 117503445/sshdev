@@ -27,6 +27,7 @@ type CmdRun struct {
 	Password            string `name:"password" help:"password for authentication" env:"SSHDEV_PASSWORD"`
 	AuthorizedKeysFiles string `name:"authorized-keys-files" help:"authorized keys file paths (colon-separated)" env:"SSHDEV_AUTHORIZED_KEYS_FILES"`
 	AuthorizedKeys      string `name:"authorized-keys" help:"authorized keys content (newline-separated)" env:"SSHDEV_AUTHORIZED_KEYS"`
+	Insecure            bool   `name:"insecure" help:"allow no-auth mode when password and public key auth are not configured" env:"SSHDEV_INSECURE"`
 	Shell               string `name:"shell" help:"default shell (empty = current user's default)" env:"SSHDEV_SHELL"`
 	ConfigJSON          string `name:"config-json" help:"JSON configuration" env:"SSHDEV_CONFIG_JSON"`
 }
@@ -40,6 +41,7 @@ type JSONConfig struct {
 	Password            string `json:"password"`
 	AuthorizedKeysFiles string `json:"authorizedKeysFiles"`
 	AuthorizedKeys      string `json:"authorizedKeys"`
+	Insecure            bool   `json:"insecure"`
 	Shell               string `json:"shell"`
 }
 
@@ -75,6 +77,7 @@ func (cmd *CmdRun) Run() error {
 		Str("shell", cfg.Shell).
 		Str("listenAddr", cfg.ListenAddr).
 		Bool("hostKeyBuiltin", cfg.HostKeyBuiltin).
+		Bool("insecure", cfg.Insecure).
 		Str("hostKeyPath", cfg.HostKeyPath).
 		Bool("hasHostKeyContent", cfg.HostKeyContent != "").
 		Msg("Configuration ready, validating")
@@ -90,6 +93,7 @@ func (cmd *CmdRun) Run() error {
 		Str("listen", cfg.ListenAddr).
 		Bool("passwordAuth", cfg.HasPasswordAuth()).
 		Bool("publicKeyAuth", cfg.HasPublicKeyAuth()).
+		Bool("insecure", cfg.Insecure).
 		Str("shell", cfg.Shell).
 		Msg("Starting SSH server")
 
@@ -139,6 +143,9 @@ func applyJSONConfig(cfg *sshlib.Config, jsonCfg *JSONConfig) {
 	if jsonCfg.AuthorizedKeys != "" {
 		cfg.AuthorizedKeys = jsonCfg.AuthorizedKeys
 	}
+	if jsonCfg.Insecure {
+		cfg.Insecure = jsonCfg.Insecure
+	}
 	if jsonCfg.Shell != "" {
 		cfg.Shell = jsonCfg.Shell
 	}
@@ -166,6 +173,9 @@ func applyCLIConfig(cfg *sshlib.Config, cmd *CmdRun) {
 	}
 	if cmd.AuthorizedKeys != "" {
 		cfg.AuthorizedKeys = cmd.AuthorizedKeys
+	}
+	if cmd.Insecure {
+		cfg.Insecure = cmd.Insecure
 	}
 	if cmd.Shell != "" {
 		cfg.Shell = cmd.Shell

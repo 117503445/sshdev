@@ -13,9 +13,11 @@ go build -o sshdev ./cmd/sshdev
 
 ### 使用方式
 
-#### 无认证模式（默认）
+#### 无认证模式（需显式启用）
 ```bash
-./sshdev run
+./sshdev run --insecure
+# 或
+SSHDEV_INSECURE=1 ./sshdev run
 ```
 
 #### 密码认证模式
@@ -53,6 +55,7 @@ ssh -p 2222 user@host
 | SSHDEV_PASSWORD | 认证密码（设置后启用密码认证） | - |
 | SSHDEV_AUTHORIZED_KEYS_FILES | 授权公钥文件路径（冒号分隔） | - |
 | SSHDEV_AUTHORIZED_KEYS | 授权公钥内容（换行分隔） | - |
+| SSHDEV_INSECURE | 未配置密码和公钥时允许无认证模式 | - |
 | SSHDEV_HOST_KEY | 主机密钥内容（PEM 格式） | 随机生成 |
 | SSHDEV_HOST_KEY_PATH | 主机密钥文件路径 | - |
 | SSHDEV_HOST_KEY_BUILTIN | 使用内置主机密钥（任意非空值启用） | - |
@@ -115,6 +118,8 @@ func main() {
 - `Config.Validate() error`: 验证配置
 - `Config.HasPasswordAuth() bool`: 是否启用密码认证
 - `Config.HasPublicKeyAuth() bool`: 是否启用公钥认证
+
+未配置 `Password`、`AuthorizedKeysFiles` 和 `AuthorizedKeys` 时，必须设置 `Insecure: true` 才能启用无认证模式。
 
 #### 错误
 - `ErrInvalidConfig`: 配置无效时返回

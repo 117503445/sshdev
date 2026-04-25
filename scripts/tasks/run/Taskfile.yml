@@ -5,4 +5,4 @@ tasks:
     desc: "使用本地配置运行"
     deps: [":base:clear", ":build:bin"]
     cmds:
-      - ./data/cli/sshdev run --host-key-builtin
+      - ./data/cli/sshdev run --host-key-builtin --insecure
