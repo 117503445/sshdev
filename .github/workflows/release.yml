@@ -38,7 +38,7 @@ jobs:
         id: version
         if: github.event_name == 'push' && github.ref == 'refs/heads/master'
         run: |
-          VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo "v0.0.0-$(git rev-parse --short HEAD)")
+          VERSION="v0.0.0-${GITHUB_SHA::7}"
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
           echo "Building version: ${VERSION}"
 
