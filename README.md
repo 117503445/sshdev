@@ -42,6 +42,19 @@ SSHDEV_PASSWORD=secret SSHDEV_AUTHORIZED_KEYS_FILES=~/.ssh/authorized_keys ./ssh
 SSHDEV_HOST_KEY_BUILTIN=1 ./sshdev run
 ```
 
+#### 使用 Pinggy 暴露到公网
+```bash
+SSHDEV_PASSWORD=secret ./sshdev run --pinggy
+# 或
+SSHDEV_PASSWORD=secret SSHDEV_PINGGY=1 ./sshdev run
+```
+
+启用后会通过本机 `ssh` 客户端连接 `a.pinggy.io:443`，创建匿名临时 TCP 隧道，并把 Pinggy 输出的公网地址显示在当前终端。拿到 `tcp://<host>:<port>` 后，可以使用：
+
+```bash
+ssh -p <port> user@<host>
+```
+
 #### 连接服务器
 ```bash
 ssh -p 2222 user@host
@@ -61,6 +74,7 @@ ssh -p 2222 user@host
 | SSHDEV_HOST_KEY_BUILTIN | 使用内置主机密钥（任意非空值启用） | - |
 | SSHDEV_SHELL | 默认 shell | 当前用户默认 shell |
 | SSHDEV_CONFIG_JSON | JSON 格式完整配置 | - |
+| SSHDEV_PINGGY | 通过 Pinggy 创建匿名临时 TCP 隧道 | - |
 
 ### 主机密钥优先级
 

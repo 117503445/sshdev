@@ -16,6 +16,7 @@
 | `SSHDEV_HOST_KEY_BUILTIN` | 使用内置主机密钥（任意非空值启用） | - |
 | `SSHDEV_SHELL` | 默认 shell（空则使用当前用户默认 shell） | - |
 | `SSHDEV_CONFIG_JSON` | JSON 格式的完整配置 | - |
+| `SSHDEV_PINGGY` | 通过 Pinggy 创建匿名临时 TCP 隧道 | - |
 
 ## 认证模式
 
@@ -67,6 +68,22 @@ SSHDEV_AUTHORIZED_KEYS_FILES="/home/user/.ssh/authorized_keys:/etc/ssh/authorize
 ```bash
 SSHDEV_PASSWORD=secret SSHDEV_AUTHORIZED_KEYS_FILES="/home/user/.ssh/authorized_keys" ./sshdev run
 ```
+
+### Pinggy 临时公网隧道
+
+```bash
+SSHDEV_PASSWORD=secret ./sshdev run --pinggy
+# 或
+SSHDEV_PASSWORD=secret SSHDEV_PINGGY=1 ./sshdev run
+```
+
+启用后，程序会调用本机 `ssh` 客户端连接 `a.pinggy.io:443`，通过 Pinggy 创建匿名临时 TCP 隧道，把当前 sshdev 监听端口暴露到公网。Pinggy 会在当前终端输出类似 `tcp://<host>:<port>` 的公网地址，连接时使用：
+
+```bash
+ssh -p <port> user@<host>
+```
+
+`--pinggy` 需要 `--listen` 使用固定端口，例如默认的 `0.0.0.0:2222`。如果监听地址使用 `:0` 随机端口，程序无法在启动隧道前确定本地端口，会直接返回配置错误。
 
 ### 使用 JSON 配置
 
