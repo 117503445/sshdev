@@ -1,0 +1,104 @@
+name: gh 分支 root Pinggy 隧道
+
+on:
+  push:
+    branches:
+      - gh
+
+permissions:
+  contents: read
+
+jobs:
+  root-pinggy:
+    name: 以 root 启动 insecure sshdev
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: 下载最新 release 并开启 Pinggy 隧道
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          sudo --preserve-env=GH_TOKEN,GITHUB_REPOSITORY bash <<'ROOT'
+          set -euo pipefail
+
+          work_dir="$(mktemp -d)"
+          log_file="${work_dir}/sshdev.log"
+          server_pid=""
+          tail_pid=""
+
+          cleanup() {
+            if [ -n "${server_pid}" ] && kill -0 "${server_pid}" >/dev/null 2>&1; then
+              kill "${server_pid}" >/dev/null 2>&1 || true
+              wait "${server_pid}" >/dev/null 2>&1 || true
+            fi
+            if [ -n "${tail_pid}" ]; then
+              kill "${tail_pid}" >/dev/null 2>&1 || true
+            fi
+            rm -rf "${work_dir}"
+          }
+          trap cleanup EXIT
+
+          echo "SSHDEV_CI_ROOT_CONTEXT user=$(id -un) uid=$(id -u)"
+
+          gh release download \
+            --repo "${GITHUB_REPOSITORY}" \
+            --pattern sshdev-linux-amd64 \
+            --dir "${work_dir}" \
+            --clobber
+          install -m 0755 "${work_dir}/sshdev-linux-amd64" /usr/local/bin/sshdev
+
+          touch "${log_file}"
+          tail -n +1 -f "${log_file}" &
+          tail_pid="$!"
+
+          SSHDEV_LISTEN=127.0.0.1:2222 \
+          SSHDEV_INSECURE=1 \
+          SSHDEV_HOST_KEY_BUILTIN=1 \
+          SSHDEV_SHELL=/bin/bash \
+          SSHDEV_PINGGY=1 \
+          SHELL=/bin/bash \
+          /usr/local/bin/sshdev run </dev/null >"${log_file}" 2>&1 &
+          server_pid="$!"
+
+          login_ok=0
+          for _ in $(seq 1 60); do
+            if ssh -n \
+              -p 2222 \
+              -o PreferredAuthentications=none \
+              -o PubkeyAuthentication=no \
+              -o PasswordAuthentication=no \
+              -o KbdInteractiveAuthentication=no \
+              -o ConnectTimeout=2 \
+              -o StrictHostKeyChecking=no \
+              -o UserKnownHostsFile=/dev/null \
+              root@127.0.0.1 \
+              'printf "SSHDEV_CI_ROOT_LOGIN_OK user=%s uid=%s shell=%s\n" "$(id -un)" "$(id -u)" "${SHELL:-}"'; then
+              login_ok=1
+              break
+            fi
+
+            if ! kill -0 "${server_pid}" >/dev/null 2>&1; then
+              echo "::error::sshdev 进程提前退出"
+              wait "${server_pid}"
+              exit 1
+            fi
+            sleep 2
+          done
+
+          if [ "${login_ok}" != "1" ]; then
+            echo "::error::无法通过 sshdev 以 root 身份登录自检"
+            exit 1
+          fi
+
+          tunnel=""
+          for _ in $(seq 1 60); do
+            tunnel="$(grep -Eo 'tcp://[^[:space:]]+' "${log_file}" | tail -n 1 || true)"
+            [ -n "${tunnel}" ] && break
+            sleep 1
+          done
+          echo "SSHDEV_CI_PINGGY_TUNNEL=${tunnel:-未提取到}"
+          sleep 180
+          ROOT
