@@ -115,7 +115,7 @@ jobs:
           SSHDEV_SHELL=/bin/bash \
           SSHDEV_PINGGY=1 \
           SHELL=/bin/bash \
-          /usr/local/bin/sshdev run >"${log_file}" 2>&1 &
+          /usr/local/bin/sshdev run </dev/null >"${log_file}" 2>&1 &
           server_pid="$!"
 
           login_ok=0
