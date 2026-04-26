@@ -121,6 +121,7 @@ jobs:
           login_ok=0
           for _ in $(seq 1 60); do
             if ssh \
+              -n \
               -i "${selfcheck_key}" \
               -p 2222 \
               -o BatchMode=yes \
