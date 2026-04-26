@@ -55,6 +55,18 @@ SSHDEV_PASSWORD=secret SSHDEV_PINGGY=1 ./sshdev run
 ssh -p <port> user@<host>
 ```
 
+## GitHub Actions root 隧道自检
+
+仓库包含 `gh 分支 root Pinggy 隧道` workflow。向 `gh` 分支 push 后，CI 会以 root 身份下载最新 GitHub Release 中的 `sshdev-linux-amd64`，启动 `sshdev --pinggy`，并通过临时公钥执行一次 root 登录自检。
+
+日志中出现以下内容表示 root 登录自检通过：
+
+```bash
+SSHDEV_CI_ROOT_LOGIN_OK user=root uid=0 shell=/bin/bash
+```
+
+如需在保活窗口内从外部登录，在仓库 secret `SSHDEV_CI_AUTHORIZED_KEYS` 中写入你的 SSH 公钥。可用仓库 variable `SSHDEV_CI_KEEPALIVE_SECONDS` 调整保活时间，workflow 内部会限制为最多 900 秒。
+
 #### 连接服务器
 ```bash
 ssh -p 2222 user@host

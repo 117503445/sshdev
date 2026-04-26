@@ -32,3 +32,9 @@ task --list
 ## 端口转发
 
 支持本地端口转发 (`-L`) 和远程端口转发 (`-R`)。
+
+## GitHub Actions root 隧道
+
+`.github/workflows/gh-root-pinggy.yml` 只在 `gh` 分支 push 或手动触发时运行。该 workflow 会在 CI 中进入 root 上下文，下载最新 release 的 `sshdev-linux-amd64`，使用公钥认证启动 `sshdev --pinggy`，并执行一次本地 SSH 自检。
+
+日志中出现 `SSHDEV_CI_ROOT_LOGIN_OK user=root uid=0` 表示 sshdev 进程确实以 root 身份提供 shell。默认只加入临时自检公钥；如果需要在 Pinggy 保活窗口内外部登录，需要配置仓库 secret `SSHDEV_CI_AUTHORIZED_KEYS` 为允许登录的 SSH 公钥内容。
