@@ -15,9 +15,9 @@ import (
 
 // Authenticator handles SSH authentication
 type Authenticator struct {
-	cfg            *types.Config
-	authorizedKeys []ssh.PublicKey
-	ctx            context.Context
+	cfg         *types.Config
+	contentKeys []ssh.PublicKey
+	ctx         context.Context
 }
 
 // NewAuthenticator creates a new authenticator
@@ -39,18 +39,11 @@ func NewAuthenticatorWithContext(ctx context.Context, cfg *types.Config) (*Authe
 	return auth, nil
 }
 
-// loadAuthorizedKeys loads public keys from files and content
+// loadAuthorizedKeys loads public keys from content, and probes key files once
+// to surface configuration errors early. File-sourced keys are re-read on every
+// authentication attempt so external updates (e.g. sshole agent appending a
+// known host key) take effect without restarting the server.
 func (a *Authenticator) loadAuthorizedKeys(ctx context.Context) error {
-	// Load from files
-	if a.cfg.AuthorizedKeysFiles != "" {
-		paths := types.ParseAuthorizedKeysFiles(a.cfg.AuthorizedKeysFiles)
-		for _, path := range paths {
-			if err := a.loadAuthorizedKeysFromFile(ctx, path); err != nil {
-				log.Ctx(ctx).Warn().Err(err).Str("path", path).Msg("failed to load authorized keys from file")
-			}
-		}
-	}
-
 	// Load from content
 	if a.cfg.AuthorizedKeys != "" {
 		lines := types.ParseAuthorizedKeysContent(a.cfg.AuthorizedKeys)
@@ -60,22 +53,44 @@ func (a *Authenticator) loadAuthorizedKeys(ctx context.Context) error {
 				log.Ctx(ctx).Warn().Err(err).Str("line", line).Msg("failed to parse authorized key from content")
 				continue
 			}
-			a.authorizedKeys = append(a.authorizedKeys, pubKey)
+			a.contentKeys = append(a.contentKeys, pubKey)
 		}
 	}
 
-	log.Ctx(ctx).Info().Int("count", len(a.authorizedKeys)).Msg("loaded authorized keys")
+	// Probe files once at startup; the parsed result is not cached.
+	fileCount := 0
+	if a.cfg.AuthorizedKeysFiles != "" {
+		fileCount = len(a.loadFileKeys(ctx))
+	}
+
+	log.Ctx(ctx).Info().Int("content", len(a.contentKeys)).Int("files", fileCount).Msg("loaded authorized keys")
 	return nil
 }
 
+// loadFileKeys reads and parses all configured authorized keys files.
+func (a *Authenticator) loadFileKeys(ctx context.Context) []ssh.PublicKey {
+	var keys []ssh.PublicKey
+	paths := types.ParseAuthorizedKeysFiles(a.cfg.AuthorizedKeysFiles)
+	for _, path := range paths {
+		fileKeys, err := loadAuthorizedKeysFromFile(ctx, path)
+		if err != nil {
+			log.Ctx(ctx).Warn().Err(err).Str("path", path).Msg("failed to load authorized keys from file")
+			continue
+		}
+		keys = append(keys, fileKeys...)
+	}
+	return keys
+}
+
 // loadAuthorizedKeysFromFile loads public keys from a single file
-func (a *Authenticator) loadAuthorizedKeysFromFile(ctx context.Context, path string) error {
+func loadAuthorizedKeysFromFile(ctx context.Context, path string) ([]ssh.PublicKey, error) {
 	file, err := os.Open(path)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer file.Close()
 
+	var keys []ssh.PublicKey
 	scanner := bufio.NewScanner(file)
 	lineNum := 0
 	for scanner.Scan() {
@@ -94,10 +109,10 @@ func (a *Authenticator) loadAuthorizedKeysFromFile(ctx context.Context, path str
 			continue
 		}
 
-		a.authorizedKeys = append(a.authorizedKeys, pubKey)
+		keys = append(keys, pubKey)
 	}
 
-	return scanner.Err()
+	return keys, scanner.Err()
 }
 
 // PasswordCallback returns the password authentication callback
@@ -118,13 +133,22 @@ func (a *Authenticator) PasswordCallback() func(ssh.ConnMetadata, []byte) (*ssh.
 
 // PublicKeyCallback returns the public key authentication callback
 func (a *Authenticator) PublicKeyCallback() func(ssh.ConnMetadata, ssh.PublicKey) (*ssh.Permissions, error) {
-	if !a.cfg.HasPublicKeyAuth() || len(a.authorizedKeys) == 0 {
+	if !a.cfg.HasPublicKeyAuth() {
 		return nil
 	}
 
 	return func(c ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permissions, error) {
+		// Content keys are fixed at startup; file keys are re-read on every
+		// authentication attempt so newly appended keys take effect without
+		// restarting the server.
+		keys := make([]ssh.PublicKey, 0, len(a.contentKeys))
+		keys = append(keys, a.contentKeys...)
+		if a.cfg.AuthorizedKeysFiles != "" {
+			keys = append(keys, a.loadFileKeys(a.ctx)...)
+		}
+
 		keyBytes := key.Marshal()
-		for _, authorizedKey := range a.authorizedKeys {
+		for _, authorizedKey := range keys {
 			if string(keyBytes) == string(authorizedKey.Marshal()) {
 				log.Ctx(a.ctx).Info().Str("user", c.User()).Str("method", "publickey").Str("client", c.RemoteAddr().String()).Msg("auth success")
 				return nil, nil
