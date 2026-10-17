@@ -11,7 +11,7 @@ tasks:
     desc: "运行集成测试"
     deps: [":base:clear"]
     cmds:
-      - go test -v -run "TestSSHServer|TestConfigValidation|TestCLI" -timeout 120s
+      - go test ./pkg/sshlib ./cmd/sshdev -v -timeout 180s
 
   all:
     desc: "运行所有测试"

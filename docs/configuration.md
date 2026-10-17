@@ -2,13 +2,15 @@
 
 所有配置通过 `SSHDEV_` 前缀的环境变量设置。
 
+CLI 启动时主动读取当前目录 `.env`（已有环境变量优先）。`run --env-file <路径>` 显式加载独立 `.env` 并覆盖同名环境变量。安装、自启和诊断见[系统服务说明](session-and-services.md)。
+
 ## 核心配置
 
 | 变量 | 说明 | 默认值 |
 |------|------|--------|
 | `SSHDEV_LISTEN` | 监听地址 | `0.0.0.0:2222` |
 | `SSHDEV_PASSWORD` | 认证密码（设置后启用密码认证） | - |
-| `SSHDEV_AUTHORIZED_KEYS_FILES` | 授权公钥文件路径（冒号分隔） | - |
+| `SSHDEV_AUTHORIZED_KEYS_FILES` | 授权公钥文件路径（支持分号与旧冒号格式，保留 Windows 盘符） | - |
 | `SSHDEV_AUTHORIZED_KEYS` | 授权公钥内容（换行分隔） | - |
 | `SSHDEV_INSECURE` | 未配置密码和公钥时允许无认证模式 | - |
 | `SSHDEV_HOST_KEY` | 主机密钥内容（PEM 格式） | 随机生成 |
@@ -105,7 +107,7 @@ SSHDEV_CONFIG_JSON='{"listenAddr":":2222","insecure":true,"shell":"/bin/bash"}' 
 SSHDEV_HOST_KEY="$(cat /path/to/host_key)" ./sshdev run
 
 # 从文件路径
-./sshdev run --host-key-path="/path/to/host_key"
+./sshdev run --host-key="/path/to/host_key"
 
 # 使用内置主机密钥（适合测试环境，无需生成密钥文件）
 SSHDEV_HOST_KEY_BUILTIN=1 ./sshdev run
@@ -114,5 +116,5 @@ SSHDEV_HOST_KEY_BUILTIN=1 ./sshdev run
 **主机密钥优先级**：
 1. `SSHDEV_HOST_KEY` - 环境变量指定的密钥内容
 2. `SSHDEV_HOST_KEY_BUILTIN` - 内置的 ED25519 密钥
-3. `SSHDEV_HOST_KEY_PATH` / `--host-key-path` - 密钥文件路径
+3. `SSHDEV_HOST_KEY_PATH` / `--host-key` - 密钥文件路径
 4. 随机生成 - 每次启动生成新密钥

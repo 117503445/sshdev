@@ -4,11 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/117503445/sshdev/internal/types"
+	"github.com/kardianos/service"
 	"net"
 	"os"
 	"os/exec"
 	"os/signal"
-	"path/filepath"
 	"runtime"
 	"strconv"
 	"syscall"
@@ -19,10 +20,16 @@ import (
 )
 
 var cli struct {
-	Run CmdRun `cmd:"" help:"Run SSH server" default:"1"`
+	Run       CmdRun       `cmd:"" help:"Run SSH server" default:"1"`
+	Install   CmdInstall   `cmd:"" help:"安装并启动系统服务"`
+	Uninstall CmdUninstall `cmd:"" help:"卸载服务并保留配置"`
+	Status    CmdStatus    `cmd:"" help:"查看系统服务状态"`
+	Doctor    CmdDoctor    `cmd:"" help:"检查配置和监听状态"`
 }
 
 type CmdRun struct {
+	EnvFile             string `name:"env-file" help:"启动时加载的 .env 文件"`
+	ServiceName         string `name:"service-name" hidden:""`
 	ListenAddr          string `name:"listen" help:"listen address" default:"0.0.0.0:2222" env:"SSHDEV_LISTEN"`
 	HostKeyPath         string `name:"host-key" help:"host key file path" env:"SSHDEV_HOST_KEY_PATH"`
 	HostKeyContent      string `name:"host-key-content" help:"host key content (PEM format)" env:"SSHDEV_HOST_KEY"`
@@ -51,8 +58,21 @@ type JSONConfig struct {
 }
 
 func (cmd *CmdRun) Run() error {
-	ctx, cancel := context.WithCancel(context.Background())
+	if cmd.ServiceName != "" {
+		program := &serviceProgram{command: cmd}
+		svc, err := service.New(program, &service.Config{Name: cmd.ServiceName})
+		if err != nil {
+			return err
+		}
+		return svc.Run()
+	}
+	ctx, cancel := signal.NotifyContext(context.Background(), osSignalToWatch()...)
 	defer cancel()
+	return cmd.run(ctx)
+}
+
+// run 按 cmd 配置运行 SSH 服务，ctx 取消时清理连接和隧道。
+func (cmd *CmdRun) run(ctx context.Context) error {
 	ctx = log.Logger.WithContext(ctx)
 	log.Ctx(ctx).Info().Msg("CmdRun.Run() called, initializing configuration")
 
@@ -131,24 +151,8 @@ func (cmd *CmdRun) Run() error {
 		}
 	}
 
-	// 处理退出信号，确保 SSH 服务和 Pinggy 隧道一起停止。
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, osSignalToWatch()...)
-
-	go func() {
-		<-sigCh
-		log.Ctx(ctx).Info().Msg("Received shutdown signal")
-		cancel()
-		server.Stop()
-		if pinggyCmd != nil && pinggyCmd.Process != nil {
-			_ = pinggyCmd.Process.Kill()
-		}
-		os.Exit(0)
-	}()
-
 	log.Ctx(ctx).Info().Msg("Starting SSH server loop")
 	err = server.Start(ctx)
-	cancel()
 	if pinggyCmd != nil && pinggyCmd.Process != nil {
 		_ = pinggyCmd.Process.Kill()
 	}
@@ -219,38 +223,9 @@ func applyCLIConfig(cfg *sshlib.Config, cmd *CmdRun) {
 
 // defaultShell 按当前操作系统返回默认 shell。
 func defaultShell(ctx context.Context) string {
-	// 优先使用 SHELL 环境变量。
-	if shell := os.Getenv("SHELL"); shell != "" {
-		log.Ctx(ctx).Info().Str("shell", shell).Msg("Using SHELL environment variable")
-		return shell
-	}
-
-	switch runtime.GOOS {
-	case "windows":
-		// Windows 下优先使用 PowerShell Core。
-		if pwshPath, err := exec.LookPath("pwsh"); err == nil {
-			log.Ctx(ctx).Info().Str("shell", pwshPath).Msg("Using PowerShell Core (pwsh)")
-			return pwshPath
-		}
-		// 其次尝试 Windows PowerShell。
-		if psPath, err := exec.LookPath("powershell"); err == nil {
-			log.Ctx(ctx).Info().Str("shell", psPath).Msg("Using Windows PowerShell")
-			return psPath
-		}
-		// 再回退到系统目录里的 cmd.exe。
-		if systemRoot := os.Getenv("SystemRoot"); systemRoot != "" {
-			cmdPath := filepath.Join(systemRoot, "System32", "cmd.exe")
-			if _, err := os.Stat(cmdPath); err == nil {
-				log.Ctx(ctx).Info().Str("shell", cmdPath).Msg("Using Windows cmd.exe (fallback)")
-				return cmdPath
-			}
-		}
-		log.Ctx(ctx).Info().Msg("Using cmd.exe from PATH (last resort)")
-		return "cmd.exe"
-	default:
-		log.Ctx(ctx).Info().Msg("Using default /bin/sh")
-		return "/bin/sh"
-	}
+	shell := types.DefaultShell()
+	log.Ctx(ctx).Info().Str("shell", shell).Msg("使用默认 shell")
+	return shell
 }
 
 // osSignalToWatch 按当前操作系统返回需要监听的退出信号。

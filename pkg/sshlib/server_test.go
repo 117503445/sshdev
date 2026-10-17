@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -15,7 +18,7 @@ import (
 // TestNewServer tests creating a new server via pkg API
 func TestNewServer(t *testing.T) {
 	// Create a temporary host key file
-	hostKeyPath := "/tmp/test_pkg_host_key"
+	hostKeyPath := filepath.Join(t.TempDir(), "host_key")
 	defer os.Remove(hostKeyPath)
 
 	// Find a free port to use
@@ -30,7 +33,7 @@ func TestNewServer(t *testing.T) {
 		ListenAddr:  fmt.Sprintf("127.0.0.1:%d", port),
 		HostKeyPath: hostKeyPath,
 		Insecure:    true,
-		Shell:       "/bin/sh",
+		Shell:       testShell(),
 	}
 
 	srv, err := sshlib.NewServer(context.Background(), cfg)
@@ -86,7 +89,7 @@ func TestNewServer(t *testing.T) {
 	}
 
 	expected := "pkg test\n"
-	actual := string(output)
+	actual := strings.ReplaceAll(string(output), "\r\n", "\n")
 	if actual != expected {
 		t.Errorf("Expected %q, got %q", expected, actual)
 	}
@@ -103,9 +106,9 @@ func TestConfigValidation(t *testing.T) {
 			name: "valid config with password auth",
 			config: &sshlib.Config{
 				ListenAddr:  "127.0.0.1:2222",
-				HostKeyPath: "/tmp/key",
+				HostKeyPath: filepath.Join(t.TempDir(), "host_key"),
 				Password:    "test",
-				Shell:       "/bin/sh",
+				Shell:       testShell(),
 			},
 			expectError: false,
 		},
@@ -113,9 +116,9 @@ func TestConfigValidation(t *testing.T) {
 			name: "valid config with explicit insecure no auth",
 			config: &sshlib.Config{
 				ListenAddr:  "127.0.0.1:2222",
-				HostKeyPath: "/tmp/key",
+				HostKeyPath: filepath.Join(t.TempDir(), "host_key"),
 				Insecure:    true,
-				Shell:       "/bin/sh",
+				Shell:       testShell(),
 			},
 			expectError: false,
 		},
@@ -123,8 +126,8 @@ func TestConfigValidation(t *testing.T) {
 			name: "invalid config with implicit no auth",
 			config: &sshlib.Config{
 				ListenAddr:  "127.0.0.1:2222",
-				HostKeyPath: "/tmp/key",
-				Shell:       "/bin/sh",
+				HostKeyPath: filepath.Join(t.TempDir(), "host_key"),
+				Shell:       testShell(),
 			},
 			expectError: true,
 		},
@@ -132,7 +135,7 @@ func TestConfigValidation(t *testing.T) {
 			name: "invalid shell path",
 			config: &sshlib.Config{
 				ListenAddr:  "127.0.0.1:2222",
-				HostKeyPath: "/tmp/key",
+				HostKeyPath: filepath.Join(t.TempDir(), "host_key"),
 				Password:    "test",
 				Shell:       "/this/path/does/not/exist",
 			},
@@ -227,7 +230,7 @@ func TestDefaultAuthorizedKeysPath(t *testing.T) {
 // TestShellExitDisconnect tests that the connection is closed immediately after exit command
 func TestShellExitDisconnect(t *testing.T) {
 	// Create a temporary host key file
-	hostKeyPath := "/tmp/test_exit_host_key"
+	hostKeyPath := filepath.Join(t.TempDir(), "host_key")
 	defer os.Remove(hostKeyPath)
 
 	// Find a free port to use
@@ -242,7 +245,7 @@ func TestShellExitDisconnect(t *testing.T) {
 		ListenAddr:  fmt.Sprintf("127.0.0.1:%d", port),
 		HostKeyPath: hostKeyPath,
 		Insecure:    true,
-		Shell:       "/bin/sh",
+		Shell:       testShell(),
 	}
 
 	srv, err := sshlib.NewServer(context.Background(), cfg)
@@ -320,7 +323,11 @@ func TestShellExitDisconnect(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Send exit command
-	_, err = stdin.Write([]byte("exit\n"))
+	exitCommand := "exit\n"
+	if runtime.GOOS == "windows" {
+		exitCommand = "exit\r"
+	}
+	_, err = stdin.Write([]byte(exitCommand))
 	if err != nil {
 		t.Fatalf("Failed to write exit command: %v", err)
 	}
@@ -363,7 +370,7 @@ func TestNewServerWithInvalidConfig(t *testing.T) {
 			name: "invalid shell path",
 			config: &sshlib.Config{
 				ListenAddr:  "127.0.0.1:2222",
-				HostKeyPath: "/tmp/key",
+				HostKeyPath: filepath.Join(t.TempDir(), "host_key"),
 				Password:    "test",
 				Shell:       "/this/path/does/not/exist",
 			},

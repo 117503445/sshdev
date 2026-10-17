@@ -3,7 +3,9 @@ package types
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -40,7 +42,7 @@ func (c *Config) Validate() error {
 
 	// Determine shell
 	if c.Shell == "" {
-		c.Shell = getDefaultShell()
+		c.Shell = DefaultShell()
 	}
 
 	// Check shell exists
@@ -51,24 +53,46 @@ func (c *Config) Validate() error {
 	return nil
 }
 
-// getDefaultShell returns the current user's default shell
-func getDefaultShell() string {
+// DefaultShell 根据当前系统和 SHELL 环境变量选择默认 shell。
+func DefaultShell() string {
 	// Check SHELL env var first
 	if shell := os.Getenv("SHELL"); shell != "" {
 		return shell
+	}
+	if runtime.GOOS == "windows" {
+		for _, name := range []string{"pwsh.exe", "powershell.exe", "cmd.exe"} {
+			if path, err := exec.LookPath(name); err == nil {
+				return path
+			}
+		}
+		return "cmd.exe"
 	}
 
 	// Fallback
 	return "/bin/sh"
 }
 
-// ParseAuthorizedKeysFiles parses the colon-separated authorized keys file paths
+// ParseAuthorizedKeysFiles 拆分 paths 中的分号或冒号分隔路径，保留 Windows 盘符。
 func ParseAuthorizedKeysFiles(paths string) []string {
 	if paths == "" {
 		return nil
 	}
 	var result []string
-	for _, p := range strings.Split(paths, ":") {
+	start := 0
+	var parts []string
+	for i := 0; i < len(paths); i++ {
+		if paths[i] != ':' && paths[i] != ';' {
+			continue
+		}
+		prefix := strings.TrimSpace(paths[start:i])
+		if paths[i] == ':' && len(prefix) == 1 && ((prefix[0] >= 'A' && prefix[0] <= 'Z') || (prefix[0] >= 'a' && prefix[0] <= 'z')) && i+1 < len(paths) && (paths[i+1] == '\\' || paths[i+1] == '/') {
+			continue
+		}
+		parts = append(parts, paths[start:i])
+		start = i + 1
+	}
+	parts = append(parts, paths[start:])
+	for _, p := range parts {
 		p = strings.TrimSpace(p)
 		if p != "" {
 			result = append(result, p)

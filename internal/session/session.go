@@ -1,535 +1,169 @@
 package session
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"io"
-	"net"
 	"os"
-	"os/exec"
-	"runtime"
-	"strings"
 	"sync"
 
-	"github.com/creack/pty"
+	"github.com/117503445/sshdev/internal/types"
+	"github.com/pkg/sftp"
 	"github.com/rs/zerolog/log"
 	"golang.org/x/crypto/ssh"
-
-	"github.com/117503445/sshdev/internal/types"
-	"github.com/117503445/sshdev/internal/utils"
 )
 
-// sessionState holds the state for an SSH session
-type sessionState struct {
-	mu    sync.Mutex
-	env   []string
-	pty   *os.File
-	winCh chan windowChangeMsg
+// terminalRequest 保存客户端终端类型、尺寸和模式。
+type terminalRequest struct {
+	Term                         string
+	Columns, Rows, Width, Height uint32
+	Modes                        string
 }
 
-type windowChangeMsg struct {
-	cols uint32
-	rows uint32
+// process 保存运行中进程的控制操作，由请求循环和等待协程共同持有。
+type process struct {
+	signal func(string) error
+	resize func(uint32, uint32) error
+	kill   func()
+	wait   func() (uint32, string)
+	done   chan struct{}
+	once   sync.Once
+	mu     sync.Mutex
+	closed bool
 }
 
-type ptyReqMsg struct {
-	Term     string
-	Columns  uint32
-	Rows     uint32
-	Width    uint32
-	Height   uint32
-	Modelist string
+// stop 仅执行一次进程树清理。
+func (p *process) stop() {
+	p.once.Do(func() { p.mu.Lock(); defer p.mu.Unlock(); p.closed = true; p.kill() })
 }
 
-type execMsg struct {
-	Command string
+// finish 等待进程，发送退出结果并关闭 ch；ctx 用于记录执行结果。
+func (p *process) finish(ctx context.Context, ch ssh.Channel) {
+	defer close(p.done)
+	code, signal := p.wait()
+	p.stop()
+	if signal != "" {
+		_, _ = ch.SendRequest("exit-signal", false, ssh.Marshal(struct {
+			Signal            string
+			CoreDumped        bool
+			Message, Language string
+		}{signal, false, "", ""}))
+	}
+	_, _ = ch.SendRequest("exit-status", false, ssh.Marshal(struct{ Code uint32 }{code}))
+	log.Ctx(ctx).Debug().Uint32("exitCode", code).Str("signal", signal).Msg("会话进程退出")
+	ch.Close()
 }
 
-type subsystemMsg struct {
-	Subsystem string
-}
-
-// HandleSession handles a session channel
+// HandleSession 处理 newChannel 的会话请求；ctx 提供日志，cfg 指定 shell。
 func HandleSession(ctx context.Context, newChannel ssh.NewChannel, cfg *types.Config) {
-	channel, requests, err := newChannel.Accept()
+	ch, requests, err := newChannel.Accept()
 	if err != nil {
-		log.Ctx(ctx).Error().Err(err).Msg("failed to accept session channel")
+		log.Ctx(ctx).Warn().Err(err).Msg("接受会话失败")
 		return
 	}
-	defer channel.Close()
-
-	state := &sessionState{
-		env:   os.Environ(),
-		winCh: make(chan windowChangeMsg, 1),
-	}
-
-	// Handle requests
+	defer ch.Close()
+	env := os.Environ()
+	var term *terminalRequest
+	var active *process
+	started := false
+	defer func() {
+		if active != nil {
+			active.stop()
+			<-active.done
+		}
+	}()
 	for req := range requests {
-		ctxWithReq := log.Ctx(ctx).With().
-			Str("request_type", req.Type).
-			Bool("want_reply", req.WantReply).
-			Logger().WithContext(ctx)
-
-		var shouldExit bool
-
+		accepted := false
 		switch req.Type {
-		case "pty-req":
-			handlePtyReq(ctxWithReq, req, state, cfg)
-		case "x11-req":
-			handleX11Req(ctxWithReq, req)
 		case "env":
-			handleEnvReq(ctxWithReq, req, state)
-		case "shell":
-			shouldExit = handleShellReq(ctxWithReq, req, channel, state, cfg)
-		case "exec":
-			shouldExit = handleExecReq(ctxWithReq, req, channel, state, cfg)
-		case "subsystem":
-			shouldExit = handleSubsystemReq(ctxWithReq, req, channel, state, cfg)
+			var msg struct{ Name, Value string }
+			if !started && ssh.Unmarshal(req.Payload, &msg) == nil {
+				env = append(env, msg.Name+"="+msg.Value)
+				accepted = true
+			}
+		case "pty-req":
+			msg := new(terminalRequest)
+			if !started && term == nil && ssh.Unmarshal(req.Payload, msg) == nil && validSize(msg.Columns, msg.Rows) {
+				term = msg
+				accepted = true
+			}
+		case "shell", "exec":
+			if !started {
+				command := ""
+				valid := len(req.Payload) == 0
+				if req.Type == "exec" {
+					var msg struct{ Command string }
+					valid = ssh.Unmarshal(req.Payload, &msg) == nil
+					command = msg.Command
+				}
+				if valid {
+					active, err = startProcess(ch, cfg.Shell, command, req.Type == "exec", env, term)
+					if err == nil {
+						started = true
+						accepted = true
+					} else {
+						log.Ctx(ctx).Warn().Err(err).Msg("启动会话进程失败")
+					}
+				}
+			}
 		case "window-change":
-			handleWindowChangeReq(ctxWithReq, req, state)
+			var msg struct{ Columns, Rows, Width, Height uint32 }
+			if term != nil && ssh.Unmarshal(req.Payload, &msg) == nil && validSize(msg.Columns, msg.Rows) {
+				if active == nil {
+					term.Columns = msg.Columns
+					term.Rows = msg.Rows
+					accepted = true
+				} else {
+					active.mu.Lock()
+					if !active.closed {
+						accepted = active.resize(msg.Columns, msg.Rows) == nil
+					}
+					active.mu.Unlock()
+				}
+			}
 		case "signal":
-			handleSignalReq(ctxWithReq, req)
-		default:
-			log.Ctx(ctx).Debug().Str("type", req.Type).Msg("unknown session request")
-			if req.WantReply {
-				req.Reply(false, nil)
+			var msg struct{ Signal string }
+			if active != nil && ssh.Unmarshal(req.Payload, &msg) == nil {
+				active.mu.Lock()
+				if !active.closed {
+					accepted = active.signal(msg.Signal) == nil
+				}
+				active.mu.Unlock()
 			}
-		}
-
-		// Exit the loop after shell/exec/subsystem completes
-		if shouldExit {
-			break
-		}
-	}
-}
-
-// handlePtyReq handles a pty request
-func handlePtyReq(ctx context.Context, req *ssh.Request, state *sessionState, cfg *types.Config) {
-	var msg ptyReqMsg
-	if err := ssh.Unmarshal(req.Payload, &msg); err != nil {
-		log.Ctx(ctx).Error().Err(err).Msg("failed to parse pty-req")
-		req.Reply(false, nil)
-		return
-	}
-
-	req.Reply(true, nil)
-}
-
-// handleX11Req handles an X11 forwarding request
-func handleX11Req(ctx context.Context, req *ssh.Request) {
-	req.Reply(true, nil)
-}
-
-// handleEnvReq handles an environment request
-func handleEnvReq(ctx context.Context, req *ssh.Request, state *sessionState) {
-	var msg struct {
-		Name  string
-		Value string
-	}
-	if err := ssh.Unmarshal(req.Payload, &msg); err != nil {
-		log.Ctx(ctx).Error().Err(err).Msg("failed to parse env")
-		req.Reply(false, nil)
-		return
-	}
-
-	envVar := fmt.Sprintf("%s=%s", msg.Name, msg.Value)
-	state.mu.Lock()
-	state.env = append(state.env, envVar)
-	state.mu.Unlock()
-
-	req.Reply(true, nil)
-}
-
-// handleShellReq handles a shell request
-func handleShellReq(ctx context.Context, req *ssh.Request, channel ssh.Channel, state *sessionState, cfg *types.Config) bool {
-	state.mu.Lock()
-
-	if state.pty != nil {
-		ptmx := state.pty
-		state.mu.Unlock()
-		req.Reply(true, nil)
-
-		var wg sync.WaitGroup
-		wg.Add(2)
-
-		go func() {
-			defer wg.Done()
-			io.Copy(channel, ptmx)
-		}()
-
-		go func() {
-			defer wg.Done()
-			io.Copy(ptmx, channel)
-		}()
-
-		wg.Wait()
-		ptmx.Close()
-	} else {
-		cmd := exec.Command(cfg.Shell)
-		cmd.Env = state.env
-
-		// Try PTY first (Unix-like systems)
-		ptmx, err := pty.Start(cmd)
-		if err != nil {
-			// PTY not supported (e.g., Windows) - use direct pipes
-			if err == pty.ErrUnsupported {
-				log.Ctx(ctx).Info().Msg("PTY not supported on this platform, using direct pipes")
-				state.mu.Unlock()
-				return runShellWithPipes(ctx, req, channel, cmd)
-			}
-			log.Ctx(ctx).Error().Err(err).Msg("failed to start shell with PTY")
-			req.Reply(false, nil)
-			state.mu.Unlock()
-			return true
-		}
-
-		state.mu.Unlock()
-		req.Reply(true, nil)
-
-		// Use a done channel to signal when one direction finishes
-		done := make(chan struct{}, 2)
-
-		// Copy from PTY to channel (read shell output)
-		go func() {
-			io.Copy(channel, ptmx)
-			done <- struct{}{}
-		}()
-
-		// Copy from channel to PTY (write user input)
-		go func() {
-			io.Copy(ptmx, channel)
-			done <- struct{}{}
-		}()
-
-		// Wait for the first copy operation to finish (usually PTY output ends when shell exits)
-		<-done
-
-		// Close ptmx to unblock the other copy operation
-		ptmx.Close()
-
-		// Close channel to stop the other io.Copy and notify client
-		channel.Close()
-
-		// Wait for the second copy operation to finish
-		<-done
-
-		// Wait for shell process to complete
-		cmd.Wait()
-	}
-
-	return true
-}
-
-// runShellWithPipes runs a shell using direct stdin/stdout/stderr pipes (for Windows)
-func runShellWithPipes(ctx context.Context, req *ssh.Request, channel ssh.Channel, cmd *exec.Cmd) bool {
-	stdinPipe, err := cmd.StdinPipe()
-	if err != nil {
-		log.Ctx(ctx).Error().Err(err).Msg("failed to create stdin pipe")
-		req.Reply(false, nil)
-		return true
-	}
-
-	stdoutPipe, err := cmd.StdoutPipe()
-	if err != nil {
-		log.Ctx(ctx).Error().Err(err).Msg("failed to create stdout pipe")
-		req.Reply(false, nil)
-		return true
-	}
-
-	stderrPipe, err := cmd.StderrPipe()
-	if err != nil {
-		log.Ctx(ctx).Error().Err(err).Msg("failed to create stderr pipe")
-		req.Reply(false, nil)
-		return true
-	}
-
-	if err := cmd.Start(); err != nil {
-		log.Ctx(ctx).Error().Err(err).Msg("failed to start shell")
-		req.Reply(false, nil)
-		return true
-	}
-
-	req.Reply(true, nil)
-	log.Ctx(ctx).Info().Msg("Shell started successfully with pipes")
-
-	// Use a done channel to signal when shell exits
-	shellDone := make(chan struct{})
-
-	// Copy from channel to stdin (write user input)
-	// On Windows, convert \r to \r\n for proper line endings
-	go func() {
-		if runtime.GOOS == "windows" {
-			copyWithCRTranslation(stdinPipe, channel)
-		} else {
-			io.Copy(stdinPipe, channel)
-		}
-		stdinPipe.Close()
-	}()
-
-	// Copy from stdout to channel (read shell output)
-	go func() {
-		io.Copy(channel, stdoutPipe)
-	}()
-
-	// Copy from stderr to channel (read shell errors)
-	go func() {
-		io.Copy(channel, stderrPipe)
-	}()
-
-	// Wait for the shell to complete in a separate goroutine
-	go func() {
-		err := cmd.Wait()
-		if err != nil {
-			log.Ctx(ctx).Debug().Err(err).Msg("shell exited with error")
-		}
-		close(shellDone)
-	}()
-
-	// Wait for shell to exit, then close channel to clean up
-	<-shellDone
-	channel.Close()
-
-	log.Ctx(ctx).Info().Msg("Shell process completed")
-	return true
-}
-
-// copyWithCRTranslation copies from src to dst, translating \r to \r\n
-// This is needed for Windows shells that expect \r\n line endings
-func copyWithCRTranslation(dst io.Writer, src io.Reader) {
-	buf := make([]byte, 32*1024)
-	for {
-		n, err := src.Read(buf)
-		if n > 0 {
-			// Replace \r with \r\n (but not \r\n -> \r\r\n)
-			data := buf[:n]
-			// First replace \r\n with a placeholder to avoid double conversion
-			data = bytes.ReplaceAll(data, []byte("\r\n"), []byte("\x00N\x00"))
-			// Then replace standalone \r with \r\n
-			data = bytes.ReplaceAll(data, []byte("\r"), []byte("\r\n"))
-			// Restore the original \r\n
-			data = bytes.ReplaceAll(data, []byte("\x00N\x00"), []byte("\r\n"))
-
-			if _, writeErr := dst.Write(data); writeErr != nil {
+		case "subsystem":
+			var msg struct{ Name string }
+			if !started && ssh.Unmarshal(req.Payload, &msg) == nil && msg.Name == "sftp" {
+				server, e := sftp.NewServer(ch, sftp.WindowsRootEnumeratesDrives())
+				if e != nil {
+					if req.WantReply {
+						_ = req.Reply(false, nil)
+					}
+					return
+				}
+				if req.WantReply {
+					_ = req.Reply(true, nil)
+				}
+				// SFTP 接管整个 channel，Serve 返回时会释放所有打开的文件。
+				if e = server.Serve(); e != nil && e != io.EOF {
+					log.Ctx(ctx).Debug().Err(e).Msg("SFTP 会话结束")
+				}
+				server.Close()
 				return
 			}
 		}
-		if err != nil {
-			return
+		if req.WantReply {
+			_ = req.Reply(accepted, nil)
+		}
+		if accepted && (req.Type == "exec" || req.Type == "shell") {
+			go active.finish(ctx, ch)
 		}
 	}
 }
 
-// handleExecReq handles an exec request
-func handleExecReq(ctx context.Context, req *ssh.Request, channel ssh.Channel, state *sessionState, cfg *types.Config) bool {
-	var msg execMsg
-	if err := ssh.Unmarshal(req.Payload, &msg); err != nil {
-		log.Ctx(ctx).Error().Err(err).Msg("failed to parse exec")
-		req.Reply(false, nil)
-		return true
-	}
-
-	log.Ctx(ctx).Debug().Str("command", msg.Command).Msg("exec request received")
-
-	state.mu.Lock()
-
-	// On Windows, use direct execution without shell wrapper for better compatibility
-	cmd := exec.Command(cfg.Shell, "-c", msg.Command)
-	cmd.Env = state.env
-
-	stdoutPipe, err := cmd.StdoutPipe()
-	if err != nil {
-		log.Ctx(ctx).Error().Err(err).Msg("failed to create stdout pipe")
-		req.Reply(false, nil)
-		state.mu.Unlock()
-		return true
-	}
-
-	stderrPipe, err := cmd.StderrPipe()
-	if err != nil {
-		log.Ctx(ctx).Error().Err(err).Msg("failed to create stderr pipe")
-		req.Reply(false, nil)
-		state.mu.Unlock()
-		return true
-	}
-
-	stdinPipe, err := cmd.StdinPipe()
-	if err != nil {
-		log.Ctx(ctx).Error().Err(err).Msg("failed to create stdin pipe")
-		req.Reply(false, nil)
-		state.mu.Unlock()
-		return true
-	}
-
-	if err := cmd.Start(); err != nil {
-		log.Ctx(ctx).Error().Err(err).Msg("failed to start command")
-		req.Reply(false, nil)
-		state.mu.Unlock()
-		return true
-	}
-
-	state.mu.Unlock()
-	req.Reply(true, nil)
-
-	var wg sync.WaitGroup
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		io.Copy(stdinPipe, channel)
-		stdinPipe.Close()
-	}()
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		io.Copy(channel, stdoutPipe)
-	}()
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		io.Copy(channel, stderrPipe)
-	}()
-
-	wg.Wait()
-
-	err = cmd.Wait()
-
-	var exitStatus uint32
-	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			exitStatus = uint32(exitErr.ExitCode())
-		} else {
-			exitStatus = 1
-		}
-	} else {
-		exitStatus = 0
-	}
-
-	_, _ = channel.SendRequest("exit-status", false, ssh.Marshal(struct {
-		ExitStatus uint32
-	}{exitStatus}))
-
-	channel.Close()
-
-	return true
+// validSize 校验终端列数 columns 与行数 rows，避免平台整数截断。
+func validSize(columns, rows uint32) bool {
+	return columns > 0 && rows > 0 && columns <= 32767 && rows <= 32767
 }
 
-// handleSubsystemReq handles a subsystem request
-func handleSubsystemReq(ctx context.Context, req *ssh.Request, channel ssh.Channel, state *sessionState, cfg *types.Config) bool {
-	var msg subsystemMsg
-	if err := ssh.Unmarshal(req.Payload, &msg); err != nil {
-		log.Ctx(ctx).Error().Err(err).Msg("failed to parse subsystem")
-		req.Reply(false, nil)
-		return true
-	}
-
-	if msg.Subsystem == "sftp" {
-		log.Ctx(ctx).Info().Str("subsystem", msg.Subsystem).Msg("handling sftp subsystem")
-		req.Reply(true, nil)
-	} else {
-		log.Ctx(ctx).Warn().Str("subsystem", msg.Subsystem).Msg("unsupported subsystem")
-		req.Reply(false, nil)
-	}
-
-	return true
-}
-
-// handleWindowChangeReq handles a window change request
-func handleWindowChangeReq(ctx context.Context, req *ssh.Request, state *sessionState) {
-	var msg struct {
-		Cols   uint32
-		Rows   uint32
-		Width  uint32
-		Height uint32
-	}
-	if err := ssh.Unmarshal(req.Payload, &msg); err != nil {
-		log.Ctx(ctx).Error().Err(err).Msg("failed to parse window-change")
-		req.Reply(false, nil)
-		return
-	}
-
-	select {
-	case state.winCh <- windowChangeMsg{cols: msg.Cols, rows: msg.Rows}:
-	default:
-	}
-
-	req.Reply(true, nil)
-}
-
-// handleSignalReq handles a signal request
-func handleSignalReq(ctx context.Context, req *ssh.Request) {
-	var msg struct {
-		Signal string
-	}
-	if err := ssh.Unmarshal(req.Payload, &msg); err != nil {
-		log.Ctx(ctx).Error().Err(err).Msg("failed to parse signal")
-		req.Reply(false, nil)
-		return
-	}
-
-	sigName := strings.ToUpper(msg.Signal)
-	sig := utils.GetSignalByName(sigName)
-	if utils.IsValidSignal(sig) {
-		req.Reply(true, nil)
-	} else {
-		log.Ctx(ctx).Warn().Str("signal", sigName).Msg("unknown signal")
-		req.Reply(false, nil)
-	}
-}
-
-// HandleDirectTcpip handles direct TCP/IP forwarding
-func HandleDirectTcpip(ctx context.Context, newChannel ssh.NewChannel) {
-	var msg struct {
-		DestAddr string
-		DestPort uint32
-		SrcAddr  string
-		SrcPort  uint32
-	}
-	if err := ssh.Unmarshal(newChannel.ExtraData(), &msg); err != nil {
-		log.Ctx(ctx).Error().Err(err).Msg("failed to parse direct-tcpip")
-		newChannel.Reject(ssh.ConnectionFailed, "parse error")
-		return
-	}
-
-	destAddr := fmt.Sprintf("%s:%d", msg.DestAddr, msg.DestPort)
-
-	conn, err := net.Dial("tcp", destAddr)
-	if err != nil {
-		log.Ctx(ctx).Error().Err(err).Str("dest", destAddr).Msg("failed to connect")
-		newChannel.Reject(ssh.ConnectionFailed, "connect error")
-		return
-	}
-
-	channel, requests, err := newChannel.Accept()
-	if err != nil {
-		conn.Close()
-		log.Ctx(ctx).Error().Err(err).Msg("failed to accept direct-tcpip channel")
-		return
-	}
-
-	go ssh.DiscardRequests(requests)
-
-	done := make(chan struct{}, 2)
-
-	go func() {
-		io.Copy(channel, conn)
-		channel.CloseWrite()
-		done <- struct{}{}
-	}()
-
-	go func() {
-		io.Copy(conn, channel)
-		if tcpConn, ok := conn.(*net.TCPConn); ok {
-			tcpConn.CloseWrite()
-		}
-		done <- struct{}{}
-	}()
-
-	<-done
-	<-done
-
-	channel.Close()
-	conn.Close()
-}
+// unsupportedSignal 返回 name 所指定信号不受当前执行模式支持的错误。
+func unsupportedSignal(name string) error { return fmt.Errorf("不支持信号 %q", name) }

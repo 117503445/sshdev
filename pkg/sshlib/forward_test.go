@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -50,7 +51,7 @@ func startEchoServer(t *testing.T, port int) (net.Listener, error) {
 // TestLocalPortForwarding tests local port forwarding (direct-tcpip)
 func TestLocalPortForwarding(t *testing.T) {
 	// Create a temporary host key file
-	hostKeyPath := "/tmp/test_forward_host_key"
+	hostKeyPath := filepath.Join(t.TempDir(), "host_key")
 	defer os.Remove(hostKeyPath)
 
 	// Find free ports
@@ -76,7 +77,7 @@ func TestLocalPortForwarding(t *testing.T) {
 		ListenAddr:  fmt.Sprintf("127.0.0.1:%d", sshPort),
 		HostKeyPath: hostKeyPath,
 		Insecure:    true,
-		Shell:       "/bin/sh",
+		Shell:       testShell(),
 		// DisablePortForward defaults to false (enabled)
 	}
 
@@ -154,7 +155,7 @@ func TestLocalPortForwarding(t *testing.T) {
 // TestLocalPortForwardingDisabled tests that port forwarding can be disabled
 func TestLocalPortForwardingDisabled(t *testing.T) {
 	// Create a temporary host key file
-	hostKeyPath := "/tmp/test_forward_disabled_host_key"
+	hostKeyPath := filepath.Join(t.TempDir(), "host_key")
 	defer os.Remove(hostKeyPath)
 
 	// Find free ports
@@ -180,7 +181,7 @@ func TestLocalPortForwardingDisabled(t *testing.T) {
 		ListenAddr:         fmt.Sprintf("127.0.0.1:%d", sshPort),
 		HostKeyPath:        hostKeyPath,
 		Insecure:           true,
-		Shell:              "/bin/sh",
+		Shell:              testShell(),
 		DisablePortForward: true, // Disabled
 	}
 
@@ -238,7 +239,7 @@ func TestLocalPortForwardingDisabled(t *testing.T) {
 // TestRemotePortForwarding tests remote port forwarding (tcpip-forward)
 func TestRemotePortForwarding(t *testing.T) {
 	// Create a temporary host key file
-	hostKeyPath := "/tmp/test_remote_forward_host_key"
+	hostKeyPath := filepath.Join(t.TempDir(), "host_key")
 	defer os.Remove(hostKeyPath)
 
 	// Find free ports
@@ -257,7 +258,7 @@ func TestRemotePortForwarding(t *testing.T) {
 		ListenAddr:  fmt.Sprintf("127.0.0.1:%d", sshPort),
 		HostKeyPath: hostKeyPath,
 		Insecure:    true,
-		Shell:       "/bin/sh",
+		Shell:       testShell(),
 		// DisableRemoteForward defaults to false (enabled)
 	}
 
@@ -360,7 +361,7 @@ func TestRemotePortForwarding(t *testing.T) {
 // TestRemotePortForwardingDisabled tests that remote port forwarding can be disabled
 func TestRemotePortForwardingDisabled(t *testing.T) {
 	// Create a temporary host key file
-	hostKeyPath := "/tmp/test_remote_forward_disabled_host_key"
+	hostKeyPath := filepath.Join(t.TempDir(), "host_key")
 	defer os.Remove(hostKeyPath)
 
 	// Find free ports
@@ -379,7 +380,7 @@ func TestRemotePortForwardingDisabled(t *testing.T) {
 		ListenAddr:           fmt.Sprintf("127.0.0.1:%d", sshPort),
 		HostKeyPath:          hostKeyPath,
 		Insecure:             true,
-		Shell:                "/bin/sh",
+		Shell:                testShell(),
 		DisableRemoteForward: true, // Disabled
 	}
 

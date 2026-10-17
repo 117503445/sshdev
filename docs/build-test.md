@@ -25,6 +25,8 @@ task test:race          # 竞态检测测试
 task test:short         # 快速测试（跳过长时间测试）
 ```
 
+`Cross-platform acceptance` 在 Ubuntu 和 Windows 上运行全部测试与竞态检测，并实测 CLI 配置、诊断、原生服务安装、自启配置、认证、异常恢复和卸载。服务测试仅在隔离 CI 中设置 `SSHDEV_SERVICE_TEST=1` 与 `SSHDEV_TEST_BINARY` 后启用，不对开发机注册服务。发布流程依赖两平台验收通过。
+
 ### 格式化
 
 ```bash
