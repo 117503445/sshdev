@@ -302,27 +302,40 @@ func TestTerminalInteractive(t *testing.T) {
 			}
 		}
 	}()
-	command := "sleep 60\n"
+	command := "PS1='SSHDEV_READY> '; sh -c 'echo TERMINAL_BLOCKING; exec sleep 60'\n"
 	ending := "echo TERMINAL_OK; exit 9\n"
 	if runtime.GOOS == "windows" {
-		command = "Start-Sleep 60\r"
-		ending = "Write-Output TERMINAL_OK; exit 9\r"
+		command = "function prompt { 'SSHDEV_' + 'READY> ' }; Write-Output ('TERMINAL_' + 'BLOCKING'); Start-Sleep 60\r"
+		ending = "Write-Output ('TERMINAL_' + 'OK'); exit 9\r"
 	}
 	if _, err = io.WriteString(input, command); err != nil {
 		t.Fatal(err)
 	}
-	// 等待 shell 启动并进入阻塞命令，然后从终端送 Ctrl+C。
-	time.Sleep(time.Second)
+	text := ""
+	await := func(want string) {
+		t.Helper()
+		timer := time.NewTimer(10 * time.Second)
+		defer timer.Stop()
+		for !strings.Contains(text, want) {
+			select {
+			case part := <-output:
+				text += part
+			case <-timer.C:
+				t.Fatalf("未收到终端状态 %q: %q", want, text)
+			}
+		}
+	}
+	// 根据实际输出同步，避免 PowerShell 仍在处理取消时丢弃下一条输入。
+	await("TERMINAL_BLOCKING")
 	if _, err = input.Write([]byte{3}); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(200 * time.Millisecond)
+	await("SSHDEV_READY> ")
 	if _, err = io.WriteString(input, ending); err != nil {
 		t.Fatal(err)
 	}
 	done := make(chan error, 1)
 	go func() { done <- s.Wait() }()
-	text := ""
 	timer := time.NewTimer(10 * time.Second)
 	defer timer.Stop()
 	for {

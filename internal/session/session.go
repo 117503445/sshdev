@@ -29,10 +29,13 @@ type process struct {
 	done   chan struct{}
 	once   sync.Once
 	mu     sync.Mutex
+	closed bool
 }
 
 // stop 仅执行一次进程树清理。
-func (p *process) stop() { p.once.Do(func() { p.mu.Lock(); defer p.mu.Unlock(); p.kill() }) }
+func (p *process) stop() {
+	p.once.Do(func() { p.mu.Lock(); defer p.mu.Unlock(); p.closed = true; p.kill() })
+}
 
 // finish 等待进程，发送退出结果并关闭 ch；ctx 用于记录执行结果。
 func (p *process) finish(ctx context.Context, ch ssh.Channel) {
@@ -112,7 +115,9 @@ func HandleSession(ctx context.Context, newChannel ssh.NewChannel, cfg *types.Co
 					accepted = true
 				} else {
 					active.mu.Lock()
-					accepted = active.resize(msg.Columns, msg.Rows) == nil
+					if !active.closed {
+						accepted = active.resize(msg.Columns, msg.Rows) == nil
+					}
 					active.mu.Unlock()
 				}
 			}
@@ -120,7 +125,9 @@ func HandleSession(ctx context.Context, newChannel ssh.NewChannel, cfg *types.Co
 			var msg struct{ Signal string }
 			if active != nil && ssh.Unmarshal(req.Payload, &msg) == nil {
 				active.mu.Lock()
-				accepted = active.signal(msg.Signal) == nil
+				if !active.closed {
+					accepted = active.signal(msg.Signal) == nil
+				}
 				active.mu.Unlock()
 			}
 		case "subsystem":

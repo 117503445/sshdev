@@ -4,9 +4,11 @@ package session
 
 import (
 	"errors"
+	"os"
 	"os/exec"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/creack/pty"
 	"golang.org/x/crypto/ssh"
@@ -67,12 +69,35 @@ func startTerminal(ch ssh.Channel, cmd *exec.Cmd, term *terminalRequest) (*proce
 		terminal.Close()
 		return nil, err
 	}
+	// pty 内部 ioctl 会把文件切回阻塞模式；复制描述符并重新注册到 Go 轮询器。
+	fd, err := unix.FcntlInt(terminal.Fd(), unix.F_DUPFD_CLOEXEC, 0)
+	if err == nil {
+		err = unix.SetNonblock(fd, true)
+	}
+	if err != nil {
+		if fd >= 0 {
+			unix.Close(fd)
+		}
+		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		cmd.Wait()
+		terminal.Close()
+		return nil, err
+	}
+	terminal.Close()
+	terminal = os.NewFile(uintptr(fd), "sshdev-pty")
+	killGroup := func() {
+		group, _ := unix.IoctlGetInt(fd, unix.TIOCGPGRP)
+		if group > 0 && group != cmd.Process.Pid {
+			_ = syscall.Kill(-group, syscall.SIGKILL)
+		}
+		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+	}
 	drained := copyTerminal(ch, terminal)
-	return &process{
+	p := &process{
 		done: make(chan struct{}),
-		kill: func() { _ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL); terminal.Close() },
+		kill: func() { killGroup(); terminal.Close() },
 		signal: func(name string) error {
-			group, err := unix.IoctlGetInt(int(terminal.Fd()), unix.TIOCGPGRP)
+			group, err := unix.IoctlGetInt(fd, unix.TIOCGPGRP)
 			if err != nil {
 				return err
 			}
@@ -82,15 +107,22 @@ func startTerminal(ch ssh.Channel, cmd *exec.Cmd, term *terminalRequest) (*proce
 			return signalProcess(group, name)
 		},
 		resize: func(cols, rows uint32) error {
-			return pty.Setsize(terminal, &pty.Winsize{Cols: uint16(cols), Rows: uint16(rows)})
+			return unix.IoctlSetWinsize(fd, unix.TIOCSWINSZ, &unix.Winsize{Col: uint16(cols), Row: uint16(rows)})
 		},
-		wait: func() (uint32, string) {
-			code, sig := exitResult(cmd.Wait())
-			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-			drained()
-			return code, sig
-		},
-	}, nil
+	}
+	p.wait = func() (uint32, string) {
+		code, sig := exitResult(cmd.Wait())
+		p.mu.Lock()
+		if !p.closed {
+			killGroup()
+			// 先传完退出前输出，再结束仍被后台进程持有的终端读取。
+			terminal.SetReadDeadline(time.Now().Add(time.Second))
+		}
+		p.mu.Unlock()
+		drained()
+		return code, sig
+	}
+	return p, nil
 }
 
 // resumeCommand 在 Unix 无需额外恢复；pid 为已启动进程。
