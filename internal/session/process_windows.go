@@ -39,7 +39,19 @@ func shellArgs(shell, command string, isExec bool) []string {
 
 // prepareCommand 为 cmd 建立独立 Windows 进程组。
 func prepareCommand(cmd *exec.Cmd) {
-	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_NEW_PROCESS_GROUP | windows.CREATE_SUSPENDED}
+	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_NEW_PROCESS_GROUP | windows.CREATE_SUSPENDED, CmdLine: commandLine(cmd)}
+}
+
+// commandLine 为 cmd 构造原生命令行，保留 cmd.exe /c 内部的引号语义。
+func commandLine(cmd *exec.Cmd) string {
+	if strings.EqualFold(filepath.Base(cmd.Path), "cmd.exe") && len(cmd.Args) == 5 && cmd.Args[3] == "/c" {
+		return syscall.EscapeArg(cmd.Path) + ` /d /s /c "` + cmd.Args[4] + `"`
+	}
+	args := make([]string, len(cmd.Args))
+	for i, arg := range cmd.Args {
+		args[i] = syscall.EscapeArg(arg)
+	}
+	return strings.Join(args, " ")
 }
 
 // manageProcess 将 pid 纳入退出即清理的 Job Object，返回进程树清理函数。
@@ -96,11 +108,7 @@ func exitResult(err error) (uint32, string) {
 
 // startTerminal 使用 ConPTY 运行 cmd，按 term 设置尺寸并连接 ch。
 func startTerminal(ch ssh.Channel, cmd *exec.Cmd, term *terminalRequest) (*process, error) {
-	args := make([]string, len(cmd.Args))
-	for i, arg := range cmd.Args {
-		args[i] = syscall.EscapeArg(arg)
-	}
-	terminal, err := conpty.Start(strings.Join(args, " "), conpty.ConPtyDimensions(int(term.Columns), int(term.Rows)), conpty.ConPtyEnv(cmd.Env))
+	terminal, err := conpty.Start(commandLine(cmd), conpty.ConPtyDimensions(int(term.Columns), int(term.Rows)), conpty.ConPtyEnv(cmd.Env))
 	if err != nil {
 		return nil, fmt.Errorf("创建 ConPTY 失败（需 Windows 10 1809 或更新版本）: %w", err)
 	}

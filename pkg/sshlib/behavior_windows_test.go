@@ -4,7 +4,9 @@ import (
 	"errors"
 	"golang.org/x/crypto/ssh"
 	"io"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
@@ -28,9 +30,13 @@ func TestWindowsShells(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer s.Close()
-			command := "[Console]::Write('quoted space'); exit 12"
+			path := filepath.Join(t.TempDir(), "中文 文件.txt")
+			if err = os.WriteFile(path, []byte("quoted space"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			command := "[Console]::Write([IO.File]::ReadAllText('" + strings.ReplaceAll(path, "'", "''") + "')); exit 12"
 			if name == "cmd.exe" {
-				command = "echo quoted space & exit /b 12"
+				command = `type "` + path + `" & exit /b 12`
 			}
 			output, err := s.Output(command)
 			var exit *ssh.ExitError
