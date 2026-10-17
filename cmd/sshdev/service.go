@@ -75,6 +75,7 @@ type serviceProgram struct {
 // Start 在 svc 的后台启动 SSH 服务；服务管理器不被监听循环阻塞。
 func (p *serviceProgram) Start(svc service.Service) error {
 	ctx, cancel := context.WithCancel(context.Background())
+	ctx = log.Logger.WithContext(ctx)
 	p.cancel = cancel
 	p.done = make(chan error, 1)
 	go func() {

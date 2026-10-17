@@ -4,12 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/117503445/sshdev/internal/types"
 	"github.com/kardianos/service"
 	"net"
 	"os"
 	"os/exec"
 	"os/signal"
-	"path/filepath"
 	"runtime"
 	"strconv"
 	"syscall"
@@ -223,38 +223,9 @@ func applyCLIConfig(cfg *sshlib.Config, cmd *CmdRun) {
 
 // defaultShell 按当前操作系统返回默认 shell。
 func defaultShell(ctx context.Context) string {
-	// 优先使用 SHELL 环境变量。
-	if shell := os.Getenv("SHELL"); shell != "" {
-		log.Ctx(ctx).Info().Str("shell", shell).Msg("Using SHELL environment variable")
-		return shell
-	}
-
-	switch runtime.GOOS {
-	case "windows":
-		// Windows 下优先使用 PowerShell Core。
-		if pwshPath, err := exec.LookPath("pwsh"); err == nil {
-			log.Ctx(ctx).Info().Str("shell", pwshPath).Msg("Using PowerShell Core (pwsh)")
-			return pwshPath
-		}
-		// 其次尝试 Windows PowerShell。
-		if psPath, err := exec.LookPath("powershell"); err == nil {
-			log.Ctx(ctx).Info().Str("shell", psPath).Msg("Using Windows PowerShell")
-			return psPath
-		}
-		// 再回退到系统目录里的 cmd.exe。
-		if systemRoot := os.Getenv("SystemRoot"); systemRoot != "" {
-			cmdPath := filepath.Join(systemRoot, "System32", "cmd.exe")
-			if _, err := os.Stat(cmdPath); err == nil {
-				log.Ctx(ctx).Info().Str("shell", cmdPath).Msg("Using Windows cmd.exe (fallback)")
-				return cmdPath
-			}
-		}
-		log.Ctx(ctx).Info().Msg("Using cmd.exe from PATH (last resort)")
-		return "cmd.exe"
-	default:
-		log.Ctx(ctx).Info().Msg("Using default /bin/sh")
-		return "/bin/sh"
-	}
+	shell := types.DefaultShell()
+	log.Ctx(ctx).Info().Str("shell", shell).Msg("使用默认 shell")
+	return shell
 }
 
 // osSignalToWatch 按当前操作系统返回需要监听的退出信号。

@@ -44,7 +44,7 @@ func installFirewall(name, executable, listen string) error {
 // uninstallFirewall 删除 name 服务拥有的防火墙规则，未创建规则时保持成功。
 func uninstallFirewall(name string) error {
 	// PowerShell 的 SilentlyContinue 允许仅绑定回环地址的服务没有入站规则。
-	script := "Get-NetFirewallRule -DisplayName 'sshdev-" + name + "' -ErrorAction SilentlyContinue | Remove-NetFirewallRule -ErrorAction Stop"
+	script := "$rules = Get-NetFirewallRule -DisplayName 'sshdev-" + name + "' -ErrorAction SilentlyContinue; if ($null -ne $rules) { $rules | Remove-NetFirewallRule -ErrorAction Stop }; exit 0"
 	output, err := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("删除服务防火墙规则失败: %w: %s", err, output)

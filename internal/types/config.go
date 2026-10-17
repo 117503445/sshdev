@@ -53,7 +53,7 @@ func (c *Config) Validate() error {
 	return nil
 }
 
-// getDefaultShell returns the current user's default shell
+// DefaultShell 根据当前系统和 SHELL 环境变量选择默认 shell。
 func DefaultShell() string {
 	// Check SHELL env var first
 	if shell := os.Getenv("SHELL"); shell != "" {
@@ -72,7 +72,7 @@ func DefaultShell() string {
 	return "/bin/sh"
 }
 
-// ParseAuthorizedKeysFiles parses the colon-separated authorized keys file paths
+// ParseAuthorizedKeysFiles 拆分 paths 中的分号或冒号分隔路径，保留 Windows 盘符。
 func ParseAuthorizedKeysFiles(paths string) []string {
 	if paths == "" {
 		return nil

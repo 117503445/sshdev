@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-// HandleDirectTcpip handles direct TCP/IP forwarding
+// HandleDirectTcpip 按 newChannel 的目标建立 TCP 转发，ctx 取消时清理连接。
 func HandleDirectTcpip(ctx context.Context, newChannel ssh.NewChannel) {
 	var msg struct {
 		DestAddr string

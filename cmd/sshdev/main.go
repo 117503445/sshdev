@@ -25,14 +25,13 @@ func init() {
 func main() {
 	// Initialize logger first before any logging
 	glog.InitZeroLog()
+	Ctx = log.Logger.WithContext(context.Background())
 	if err := loadEnvironment(os.Args[1:]); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 
 	ctx := kong.Parse(&cli)
-
-	log.Ctx(Ctx).Debug().Msg("CLI 参数解析完成")
 
 	if err := ctx.Run(); err != nil {
 		log.Ctx(Ctx).Fatal().Err(err).Msg("run failed")

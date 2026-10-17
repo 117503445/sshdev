@@ -65,6 +65,15 @@ func TestServiceLifecycle(t *testing.T) {
 	if output, e := run("install"); e == nil {
 		t.Fatalf("重复安装应拒绝覆盖: %s", output)
 	}
+	var autoStart *exec.Cmd
+	if runtime.GOOS == "windows" {
+		autoStart = exec.Command("powershell.exe", "-NoProfile", "-Command", "(Get-Service -Name '"+name+"').StartType")
+	} else {
+		autoStart = exec.Command("systemctl", "is-enabled", name)
+	}
+	if output, e := autoStart.CombinedOutput(); e != nil || !strings.Contains(string(output), map[bool]string{true: "Automatic", false: "enabled"}[runtime.GOOS == "windows"]) {
+		t.Fatalf("服务未启用开机启动: %s (%v)", output, e)
+	}
 	dial := func(auth ssh.AuthMethod, hostKey ssh.HostKeyCallback) (*ssh.Client, error) {
 		return ssh.Dial("tcp", addr, &ssh.ClientConfig{User: "test", Auth: []ssh.AuthMethod{auth}, HostKeyCallback: hostKey, Timeout: time.Second})
 	}
@@ -98,6 +107,18 @@ func TestServiceLifecycle(t *testing.T) {
 			client.Close()
 			t.Fatal("错误或空密码被接受")
 		}
+	}
+	_, unknownPrivate, e := ed25519.GenerateKey(rand.Reader)
+	if e != nil {
+		t.Fatal(e)
+	}
+	unknownSigner, e := ssh.NewSignerFromKey(unknownPrivate)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if client, e := dial(ssh.PublicKeys(unknownSigner), ssh.FixedHostKey(hostSigner.PublicKey())); e == nil {
+		client.Close()
+		t.Fatal("未授权公钥被接受")
 	}
 	if output, e := run("doctor"); e != nil || !bytes.Contains(output, []byte("hostFingerprint")) {
 		t.Fatalf("自检失败: %s (%v)", output, e)
