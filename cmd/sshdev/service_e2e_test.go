@@ -66,12 +66,14 @@ func TestServiceLifecycle(t *testing.T) {
 		t.Fatalf("重复安装应拒绝覆盖: %s", output)
 	}
 	var autoStart *exec.Cmd
+	expectedStart := "enabled"
 	if runtime.GOOS == "windows" {
+		expectedStart = "Automatic"
 		autoStart = exec.Command("powershell.exe", "-NoProfile", "-Command", "(Get-Service -Name '"+name+"').StartType")
 	} else {
 		autoStart = exec.Command("systemctl", "is-enabled", name)
 	}
-	if output, e := autoStart.CombinedOutput(); e != nil || !strings.Contains(string(output), map[bool]string{true: "Automatic", false: "enabled"}[runtime.GOOS == "windows"]) {
+	if output, e := autoStart.CombinedOutput(); e != nil || !strings.Contains(string(output), expectedStart) {
 		t.Fatalf("服务未启用开机启动: %s (%v)", output, e)
 	}
 	dial := func(auth ssh.AuthMethod, hostKey ssh.HostKeyCallback) (*ssh.Client, error) {

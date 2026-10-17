@@ -336,6 +336,10 @@ func TestTerminalInteractive(t *testing.T) {
 			if !strings.Contains(text, "TERMINAL_OK") {
 				t.Fatalf("终端输出 %q (%v)", text, err)
 			}
+			var exit *ssh.ExitError
+			if !errors.As(err, &exit) || exit.ExitStatus() != 9 {
+				t.Fatalf("交互终端退出码错误: %v", err)
+			}
 			return
 		case <-timer.C:
 			t.Fatalf("Ctrl+C 后未退出: %q", text)
