@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -73,6 +74,22 @@ func behaviorServer(t *testing.T, shells ...string) (sshlib.Server, *ssh.Client,
 	return srv, client, addr
 }
 
+// observedOutput 在 writer 收到首次输出后通知 ready，区分 shell 冷启动与执行挂起。
+type observedOutput struct {
+	writer io.Writer
+	ready  chan struct{}
+	once   sync.Once
+}
+
+// Write 将 data 写入目标并通知命令已经开始输出。
+func (w *observedOutput) Write(data []byte) (int, error) {
+	n, err := w.writer.Write(data)
+	if n > 0 {
+		w.once.Do(func() { close(w.ready) })
+	}
+	return n, err
+}
+
 // TestExecStreams 验证退出码、分离输出及客户端未关闭 stdin 时仍能退出；t 为测试上下文。
 func TestExecStreams(t *testing.T) {
 	_, c, _ := behaviorServer(t)
@@ -82,7 +99,8 @@ func TestExecStreams(t *testing.T) {
 	}
 	defer s.Close()
 	var out, stderr bytes.Buffer
-	s.Stdout = &out
+	ready := make(chan struct{})
+	s.Stdout = &observedOutput{writer: &out, ready: ready}
 	s.Stderr = &stderr
 	input, err := s.StdinPipe()
 	if err != nil {
@@ -95,10 +113,21 @@ func TestExecStreams(t *testing.T) {
 	}
 	done := make(chan error, 1)
 	go func() { done <- s.Run(command) }()
+	finished := false
+	// Windows 首次启动 PowerShell 可能需要加载程序集；退出等待从实际输出开始计时。
 	select {
+	case <-ready:
 	case err = <-done:
-	case <-time.After(5 * time.Second):
-		t.Fatal("stdin 未关闭时命令无法退出")
+		finished = true
+	case <-time.After(30 * time.Second):
+		t.Fatal("shell 未开始执行命令")
+	}
+	if !finished {
+		select {
+		case err = <-done:
+		case <-time.After(5 * time.Second):
+			t.Fatal("stdin 未关闭时命令无法退出")
+		}
 	}
 	var exit *ssh.ExitError
 	if !errors.As(err, &exit) || exit.ExitStatus() != 7 {
