@@ -10,9 +10,12 @@ permissions:
   contents: write
 
 jobs:
+  acceptance:
+    uses: ./.github/workflows/cross-platform.yml
   build:
     name: Build and Release
     runs-on: ubuntu-latest
+    needs: acceptance
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
