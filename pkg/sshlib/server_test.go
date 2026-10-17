@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -322,7 +323,11 @@ func TestShellExitDisconnect(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Send exit command
-	_, err = stdin.Write([]byte("exit\n"))
+	exitCommand := "exit\n"
+	if runtime.GOOS == "windows" {
+		exitCommand = "exit\r"
+	}
+	_, err = stdin.Write([]byte(exitCommand))
 	if err != nil {
 		t.Fatalf("Failed to write exit command: %v", err)
 	}

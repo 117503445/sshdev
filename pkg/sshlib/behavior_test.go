@@ -31,7 +31,7 @@ func testShell() string {
 }
 
 // behaviorServer 为 t 启动独占服务，返回服务、客户端和地址。
-func behaviorServer(t *testing.T) (sshlib.Server, *ssh.Client, string) {
+func behaviorServer(t *testing.T, shells ...string) (sshlib.Server, *ssh.Client, string) {
 	t.Helper()
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -39,7 +39,11 @@ func behaviorServer(t *testing.T) (sshlib.Server, *ssh.Client, string) {
 	}
 	addr := l.Addr().String()
 	l.Close()
-	srv, err := sshlib.NewServer(context.Background(), &sshlib.Config{ListenAddr: addr, Password: "test-only", Shell: testShell()})
+	shell := testShell()
+	if len(shells) > 0 {
+		shell = shells[0]
+	}
+	srv, err := sshlib.NewServer(context.Background(), &sshlib.Config{ListenAddr: addr, Password: "test-only", Shell: shell})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -359,4 +363,173 @@ func TestDisconnectKillsCommand(t *testing.T) {
 	if _, err = os.Stat(target); !os.IsNotExist(err) {
 		t.Fatalf("断线后进程仍执行: %v", err)
 	}
+}
+
+// TestForwardingStop 验证活跃转发和动态远端端口在服务停止时释放；t 为测试上下文。
+func TestForwardingStop(t *testing.T) {
+	srv, c, _ := behaviorServer(t)
+	backend, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer backend.Close()
+	accepted := make(chan net.Conn, 1)
+	go func() {
+		conn, e := backend.Accept()
+		if e == nil {
+			accepted <- conn
+		}
+	}()
+	tunnel, err := c.Dial("tcp", backend.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tunnel.Close()
+	peer := <-accepted
+	defer peer.Close()
+	remote, err := c.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	remoteAddr := remote.Addr().String()
+	if err = remote.Close(); err != nil {
+		t.Fatal(err)
+	}
+	// Close 返回之前 cancel-tcpip-forward 应已解除实际分配的端口。
+	probe, err := net.Listen("tcp", remoteAddr)
+	if err != nil {
+		t.Fatalf("动态转发端口未释放: %v", err)
+	}
+	probe.Close()
+	done := make(chan struct{})
+	go func() { srv.Stop(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("活跃转发阻塞服务停止")
+	}
+}
+
+// TestExecSignal 验证 Unix 被信号终止时的 SSH 退出结果；t 为测试上下文。
+func TestExecSignal(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX 退出信号")
+	}
+	_, c, _ := behaviorServer(t)
+	s, err := c.NewSession()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if err = s.Start("sleep 60"); err != nil {
+		t.Fatal(err)
+	}
+	if err = s.Signal(ssh.SIGKILL); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- s.Wait() }()
+	select {
+	case err = <-done:
+		var exit *ssh.ExitError
+		if !errors.As(err, &exit) || exit.Signal() != "KILL" || exit.ExitStatus() != 137 {
+			t.Fatalf("退出结果错误: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("信号退出超时")
+	}
+}
+
+// TestWindowsShells 在 Windows 实际验证 PowerShell 和 cmd 的命令参数；t 为测试上下文。
+func TestWindowsShells(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("Windows shell 参数")
+	}
+	for _, name := range []string{"powershell.exe", "cmd.exe"} {
+		t.Run(name, func(t *testing.T) {
+			shell, err := exec.LookPath(name)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, c, _ := behaviorServer(t, shell)
+			s, err := c.NewSession()
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer s.Close()
+			command := "[Console]::Write('quoted space'); exit 12"
+			if name == "cmd.exe" {
+				command = "echo quoted space & exit /b 12"
+			}
+			output, err := s.Output(command)
+			var exit *ssh.ExitError
+			if !errors.As(err, &exit) || exit.ExitStatus() != 12 || strings.TrimSpace(string(output)) != "quoted space" {
+				t.Fatalf("%s: %q (%v)", name, output, err)
+			}
+		})
+	}
+}
+
+// TestWindowsPTYSize 验证 ConPTY 初始尺寸与运行期间窗口调整；t 为测试上下文。
+func TestWindowsPTYSize(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("ConPTY 尺寸")
+	}
+	_, c, _ := behaviorServer(t)
+	s, err := c.NewSession()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if err = s.RequestPty("xterm", 24, 80, nil); err != nil {
+		t.Fatal(err)
+	}
+	input, err := s.StdinPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer input.Close()
+	reader, writer := io.Pipe()
+	defer reader.Close()
+	defer writer.Close()
+	s.Stdout = writer
+	output := make(chan string, 32)
+	go func() {
+		buf := make([]byte, 2048)
+		for {
+			n, e := reader.Read(buf)
+			if n > 0 {
+				output <- string(buf[:n])
+			}
+			if e != nil {
+				return
+			}
+		}
+	}()
+	command := "[Console]::WriteLine('SIZE '+[Console]::WindowHeight+' '+[Console]::WindowWidth); [Console]::ReadLine() | Out-Null; [Console]::WriteLine('SIZE '+[Console]::WindowHeight+' '+[Console]::WindowWidth)"
+	if err = s.Start(command); err != nil {
+		t.Fatal(err)
+	}
+	text := ""
+	await := func(want string) {
+		t.Helper()
+		timer := time.NewTimer(10 * time.Second)
+		defer timer.Stop()
+		for !strings.Contains(text, want) {
+			select {
+			case part := <-output:
+				text += part
+			case <-timer.C:
+				t.Fatalf("未收到尺寸 %q: %q", want, text)
+			}
+		}
+	}
+	await("SIZE 24 80")
+	if err = s.WindowChange(40, 120); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = io.WriteString(input, "\r"); err != nil {
+		t.Fatal(err)
+	}
+	await("SIZE 40 120")
 }
