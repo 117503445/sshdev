@@ -21,12 +21,16 @@ import (
 
 // Server represents the SSH server
 type Server struct {
-	cfg       *types.Config
-	sshCfg    *ssh.ServerConfig
-	listener  net.Listener
-	wg        sync.WaitGroup
-	quit      chan struct{}
-	connIDGen atomic.Uint64
+	cfg         *types.Config
+	sshCfg      *ssh.ServerConfig
+	listener    net.Listener
+	wg          sync.WaitGroup
+	quit        chan struct{}
+	connIDGen   atomic.Uint64
+	mu          sync.Mutex
+	connections map[net.Conn]struct{}
+	stopping    bool
+	stopOnce    sync.Once
 }
 
 // NewServer creates a new SSH server
@@ -34,13 +38,12 @@ func NewServer(ctx context.Context, cfg *types.Config) (*Server, error) {
 	log.Ctx(ctx).Info().Msg("Creating new SSH server instance")
 
 	// Print configuration
-	log.Ctx(ctx).Info().
-		Interface("config", cfg).
-		Msg("Server configuration")
+	log.Ctx(ctx).Info().Str("listen", cfg.ListenAddr).Bool("passwordAuth", cfg.HasPasswordAuth()).Bool("publicKeyAuth", cfg.HasPublicKeyAuth()).Msg("SSH 服务配置")
 
 	s := &Server{
-		cfg:  cfg,
-		quit: make(chan struct{}),
+		cfg:         cfg,
+		quit:        make(chan struct{}),
+		connections: make(map[net.Conn]struct{}),
 	}
 
 	// Load or generate host key
@@ -135,12 +138,26 @@ func (s *Server) loadOrGenerateHostKey(ctx context.Context) (ssh.Signer, error) 
 func (s *Server) Start(ctx context.Context) error {
 	log.Ctx(ctx).Info().Str("addr", s.cfg.ListenAddr).Msg("Starting to listen on TCP address")
 
-	var err error
-	s.listener, err = net.Listen("tcp", s.cfg.ListenAddr)
+	listener, err := net.Listen("tcp", s.cfg.ListenAddr)
 	if err != nil {
 		log.Ctx(ctx).Error().Err(err).Str("addr", s.cfg.ListenAddr).Msg("Failed to listen on TCP address")
 		return fmt.Errorf("failed to listen: %w", err)
 	}
+	s.mu.Lock()
+	if s.stopping {
+		s.mu.Unlock()
+		listener.Close()
+		return nil
+	}
+	s.listener = listener
+	s.mu.Unlock()
+	go func() {
+		select {
+		case <-ctx.Done():
+			s.Stop()
+		case <-s.quit:
+		}
+	}()
 
 	log.Ctx(ctx).Info().Str("addr", s.cfg.ListenAddr).Msg("SSH server listening")
 	if !s.cfg.HasPasswordAuth() && !s.cfg.HasPublicKeyAuth() {
@@ -149,7 +166,7 @@ func (s *Server) Start(ctx context.Context) error {
 
 	log.Ctx(ctx).Info().Msg("Entering main accept loop")
 	for {
-		conn, err := s.listener.Accept()
+		conn, err := listener.Accept()
 		if err != nil {
 			select {
 			case <-s.quit:
@@ -161,20 +178,33 @@ func (s *Server) Start(ctx context.Context) error {
 			}
 		}
 
+		s.mu.Lock()
+		if s.stopping {
+			s.mu.Unlock()
+			conn.Close()
+			return nil
+		}
+		s.connections[conn] = struct{}{}
 		s.wg.Add(1)
+		s.mu.Unlock()
 		go s.handleConnection(ctx, conn)
 	}
 }
 
 // handleConnection handles a single SSH connection
 func (s *Server) handleConnection(ctx context.Context, conn net.Conn) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	// Assign a unique connection ID
 	connID := s.connIDGen.Add(1)
 	ctx = log.Ctx(ctx).With().Uint64("connID", connID).Logger().WithContext(ctx)
 
 	defer func() {
-		s.wg.Done()
 		conn.Close()
+		s.mu.Lock()
+		delete(s.connections, conn)
+		s.mu.Unlock()
+		s.wg.Done()
 		log.Ctx(ctx).Info().Msg("connection closed")
 	}()
 
@@ -197,7 +227,7 @@ func (s *Server) handleConnection(ctx context.Context, conn net.Conn) {
 
 	// Create forward manager for remote port forwarding
 	forwardMgr := session.NewForwardManager(sshConn)
-	defer forwardMgr.Close()
+	defer func() { cancel(); forwardMgr.Close() }()
 
 	// Handle global requests
 	go s.handleGlobalRequests(newCtx, reqs, forwardMgr)
@@ -271,11 +301,19 @@ func (s *Server) handleChannel(ctx context.Context, newChannel ssh.NewChannel, c
 
 // Stop stops the SSH server gracefully
 func (s *Server) Stop() {
-	close(s.quit)
-	if s.listener != nil {
-		s.listener.Close()
-	}
-	s.wg.Wait()
+	s.stopOnce.Do(func() {
+		s.mu.Lock()
+		s.stopping = true
+		close(s.quit)
+		if s.listener != nil {
+			s.listener.Close()
+		}
+		for conn := range s.connections {
+			conn.Close()
+		}
+		s.mu.Unlock()
+		s.wg.Wait()
+	})
 	ctx := context.Background()
 	log.Ctx(ctx).Info().Msg("SSH server stopped")
 }

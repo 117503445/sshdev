@@ -150,3 +150,9 @@ func main() {
 #### 错误
 - `ErrInvalidConfig`: 配置无效时返回
 - `ErrAuthenticationFailed`: 认证失败时返回
+
+## 终端、SFTP 与开机服务
+
+支持 SSH 命令退出码、独立 stderr、Unix PTY / Windows ConPTY 的窗口调整与 Ctrl+C，以及 SFTP 文件传输。程序主动读取 `.env`，支持 `run --env-file <路径>`。
+
+预先在配置目录 `.env` 配置密码或公钥后，以管理员/root 执行 `sshdev install` 安装开机服务；`status` 查看状态，`doctor` 输出诊断和主机指纹，`uninstall` 卸载服务并保留配置。均支持 `--config-dir` 和 `--name`，详见[会话与系统服务](docs/session-and-services.md)。

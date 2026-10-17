@@ -64,11 +64,7 @@ func validateConfig(ctx context.Context, c *Config) error {
 
 	// Determine shell
 	if c.Shell == "" {
-		c.Shell = "/bin/sh"
-		if shell := os.Getenv("SHELL"); shell != "" {
-			log.Ctx(ctx).Info().Str("envShell", shell).Msg("Using SHELL environment variable")
-			c.Shell = shell
-		}
+		c.Shell = types.DefaultShell()
 	}
 
 	log.Ctx(ctx).Info().Str("shell", c.Shell).Msg("Checking if shell exists")

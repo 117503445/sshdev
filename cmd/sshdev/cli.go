@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/kardianos/service"
 	"net"
 	"os"
 	"os/exec"
@@ -19,10 +20,16 @@ import (
 )
 
 var cli struct {
-	Run CmdRun `cmd:"" help:"Run SSH server" default:"1"`
+	Run       CmdRun       `cmd:"" help:"Run SSH server" default:"1"`
+	Install   CmdInstall   `cmd:"" help:"安装并启动系统服务"`
+	Uninstall CmdUninstall `cmd:"" help:"卸载服务并保留配置"`
+	Status    CmdStatus    `cmd:"" help:"查看系统服务状态"`
+	Doctor    CmdDoctor    `cmd:"" help:"检查配置和监听状态"`
 }
 
 type CmdRun struct {
+	EnvFile             string `name:"env-file" help:"启动时加载的 .env 文件"`
+	ServiceName         string `name:"service-name" hidden:""`
 	ListenAddr          string `name:"listen" help:"listen address" default:"0.0.0.0:2222" env:"SSHDEV_LISTEN"`
 	HostKeyPath         string `name:"host-key" help:"host key file path" env:"SSHDEV_HOST_KEY_PATH"`
 	HostKeyContent      string `name:"host-key-content" help:"host key content (PEM format)" env:"SSHDEV_HOST_KEY"`
@@ -51,8 +58,21 @@ type JSONConfig struct {
 }
 
 func (cmd *CmdRun) Run() error {
-	ctx, cancel := context.WithCancel(context.Background())
+	if cmd.ServiceName != "" {
+		program := &serviceProgram{command: cmd}
+		svc, err := service.New(program, &service.Config{Name: cmd.ServiceName})
+		if err != nil {
+			return err
+		}
+		return svc.Run()
+	}
+	ctx, cancel := signal.NotifyContext(context.Background(), osSignalToWatch()...)
 	defer cancel()
+	return cmd.run(ctx)
+}
+
+// run 按 cmd 配置运行 SSH 服务，ctx 取消时清理连接和隧道。
+func (cmd *CmdRun) run(ctx context.Context) error {
 	ctx = log.Logger.WithContext(ctx)
 	log.Ctx(ctx).Info().Msg("CmdRun.Run() called, initializing configuration")
 
@@ -131,24 +151,8 @@ func (cmd *CmdRun) Run() error {
 		}
 	}
 
-	// 处理退出信号，确保 SSH 服务和 Pinggy 隧道一起停止。
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, osSignalToWatch()...)
-
-	go func() {
-		<-sigCh
-		log.Ctx(ctx).Info().Msg("Received shutdown signal")
-		cancel()
-		server.Stop()
-		if pinggyCmd != nil && pinggyCmd.Process != nil {
-			_ = pinggyCmd.Process.Kill()
-		}
-		os.Exit(0)
-	}()
-
 	log.Ctx(ctx).Info().Msg("Starting SSH server loop")
 	err = server.Start(ctx)
-	cancel()
 	if pinggyCmd != nil && pinggyCmd.Process != nil {
 		_ = pinggyCmd.Process.Kill()
 	}
