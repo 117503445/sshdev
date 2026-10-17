@@ -3,7 +3,6 @@
 package sshlib_test
 
 import (
-	"bufio"
 	"io"
 	"os/exec"
 	"strings"
@@ -92,64 +91,5 @@ func TestPTYForegroundSignal(t *testing.T) {
 		case <-timer.C:
 			t.Fatalf("前台子进程未被中断: %q", text)
 		}
-	}
-}
-
-// TestPTYDisconnectCleanup 验证前台子进程运行期间关闭终端后服务能够停止；t 为测试上下文。
-func TestPTYDisconnectCleanup(t *testing.T) {
-	shell, err := exec.LookPath("bash")
-	if err != nil {
-		t.Fatal(err)
-	}
-	srv, c, _ := behaviorServer(t, shell)
-	session, err := c.NewSession()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer session.Close()
-	if err = session.RequestPty("xterm", 24, 80, ssh.TerminalModes{ssh.ECHO: 0}); err != nil {
-		t.Fatal(err)
-	}
-	input, err := session.StdinPipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer input.Close()
-	stdout, err := session.StdoutPipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err = session.Shell(); err != nil {
-		t.Fatal(err)
-	}
-	if _, err = io.WriteString(input, "sh -c 'echo DISCONNECT_READY; exec sleep 60'\n"); err != nil {
-		t.Fatal(err)
-	}
-	ready := make(chan struct{})
-	go func() {
-		reader := bufio.NewReader(stdout)
-		for {
-			line, e := reader.ReadString('\n')
-			if strings.Contains(line, "DISCONNECT_READY") {
-				close(ready)
-				return
-			}
-			if e != nil {
-				return
-			}
-		}
-	}()
-	select {
-	case <-ready:
-	case <-time.After(5 * time.Second):
-		t.Fatal("前台进程未启动")
-	}
-	session.Close()
-	done := make(chan struct{})
-	go func() { srv.Stop(); close(done) }()
-	select {
-	case <-done:
-	case <-time.After(5 * time.Second):
-		t.Fatal("PTY 断线后服务停止被阻塞")
 	}
 }

@@ -55,7 +55,13 @@ func startProcess(ch ssh.Channel, shell, command string, isExec bool, env []stri
 func copyTerminal(ch ssh.Channel, input io.ReadWriter) func() {
 	var output sync.WaitGroup
 	output.Add(1)
-	go func() { defer output.Done(); _, _ = io.Copy(ch, input) }()
+	go func() {
+		defer output.Done()
+		if _, err := io.Copy(ch, input); err != nil {
+			// 客户端断开后仍排空终端输出，避免 ConPTY 关闭时等待未消费的管道。
+			_, _ = io.Copy(io.Discard, input)
+		}
+	}()
 	go func() { _, _ = io.Copy(input, ch) }()
 	return output.Wait
 }
