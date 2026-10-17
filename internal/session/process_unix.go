@@ -10,6 +10,7 @@ import (
 
 	"github.com/creack/pty"
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/sys/unix"
 )
 
 // shellArgs 根据 shell、command 和 isExec 返回 Unix shell 参数。
@@ -68,9 +69,18 @@ func startTerminal(ch ssh.Channel, cmd *exec.Cmd, term *terminalRequest) (*proce
 	}
 	drained := copyTerminal(ch, terminal)
 	return &process{
-		done:   make(chan struct{}),
-		kill:   func() { _ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL); terminal.Close() },
-		signal: func(name string) error { return signalProcess(cmd.Process.Pid, name) },
+		done: make(chan struct{}),
+		kill: func() { _ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL); terminal.Close() },
+		signal: func(name string) error {
+			group, err := unix.IoctlGetInt(int(terminal.Fd()), unix.TIOCGPGRP)
+			if err != nil {
+				return err
+			}
+			if group <= 0 {
+				return unsupportedSignal(name)
+			}
+			return signalProcess(group, name)
+		},
 		resize: func(cols, rows uint32) error {
 			return pty.Setsize(terminal, &pty.Winsize{Cols: uint16(cols), Rows: uint16(rows)})
 		},
