@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/joho/godotenv"
 	"golang.org/x/crypto/ssh"
@@ -25,7 +26,7 @@ func (f *fixture) winSCP(ctx context.Context, executable string) error {
 		return err
 	}
 	remoteDir := remotePath(filepath.Join(f.root, "WinSCP 远端"))
-	fingerprint := "ssh-ed25519 255 " + ssh.FingerprintSHA256(f.signer.PublicKey())
+	fingerprint := "ssh-ed25519 255 " + strings.TrimPrefix(ssh.FingerprintSHA256(f.signer.PublicKey()), "SHA256:")
 	script := fmt.Sprintf("option batch abort\noption confirm off\nopen sftp://client-ci@%s/ -password=\"%%SSHDEV_TEST_PASSWORD%%\" -hostkey=\"%s\"\nmkdir \"%s\"\nput \"%s\" \"%s/文件.bin\"\nget \"%s/文件.bin\" \"%s\"\nmv \"%s/文件.bin\" \"%s/重命名.bin\"\nrm \"%s/重命名.bin\"\nrmdir \"%s\"\nexit\n", f.addr, fingerprint, remoteDir, source, remoteDir, remoteDir, download, remoteDir, remoteDir, remoteDir, remoteDir)
 	path := filepath.Join(f.root, "winscp.script")
 	if err := os.WriteFile(path, []byte(script), 0600); err != nil {

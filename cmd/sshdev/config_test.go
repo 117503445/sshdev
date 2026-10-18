@@ -1,6 +1,7 @@
 package main
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/alecthomas/kong"
@@ -18,6 +19,20 @@ func parseOptions(t *testing.T, args ...string) ConfigOptions {
 		t.Fatal(err)
 	}
 	return options
+}
+
+// TestPersistConfig 验证安装持久化后，运行与诊断解析相同结果；t 为测试上下文。
+func TestPersistConfig(t *testing.T) {
+	values := map[string]string{"SSHDEV_CONFIG_JSON": `{"listenAddr":":4567","insecure":true,"hostKeyBuiltin":true}`, "CUSTOM_SETTING": "keep"}
+	want, err := resolveConfig(parseOptions(t, "--insecure=false", "--host-key-builtin=false"), values)
+	if err != nil {
+		t.Fatal(err)
+	}
+	persistConfig(values, want)
+	got, err := resolveConfig(ConfigOptions{}, values)
+	if err != nil || !reflect.DeepEqual(want, got) || values["CUSTOM_SETTING"] != "keep" || values["SSHDEV_CONFIG_JSON"] != "" {
+		t.Fatalf("持久化配置改变结果: %v", err)
+	}
 }
 
 // TestConfigPrecedence 验证 JSON、环境与显式 CLI 的优先级和空值/false；t 为测试上下文。

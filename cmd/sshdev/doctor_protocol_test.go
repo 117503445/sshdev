@@ -68,14 +68,11 @@ func runDoctorBinary(t *testing.T, binary, dir string, values map[string]string)
 	}
 	output, err := exec.Command(binary, "doctor", "--config-dir", dir).CombinedOutput()
 	var report map[string]any
-	if e := json.NewDecoder(bytesReader(output)).Decode(&report); e != nil {
+	if e := json.NewDecoder(bytes.NewReader(output)).Decode(&report); e != nil {
 		t.Fatalf("诊断结果不是JSON: %s (%v)", output, e)
 	}
 	return report, err
 }
-
-// bytesReader 以 data 构造只读结果流。
-func bytesReader(data []byte) io.Reader { return bytes.NewReader(data) }
 
 // TestDoctorProtocol 验证真实 SSH、假 TCP、错误主机密钥、版本与授权公钥；t 为测试上下文。
 func TestDoctorProtocol(t *testing.T) {
@@ -134,6 +131,22 @@ func TestDoctorProtocol(t *testing.T) {
 		values["SSHDEV_AUTHORIZED_KEYS"] = "invalid-key"
 		if _, err := runDoctorBinary(t, binary, dir, values); err == nil {
 			t.Fatal("无效授权公钥被接受")
+		}
+	})
+	t.Run("错误密码", func(t *testing.T) {
+		dir, values := doctorFixture(t)
+		values["SSHDEV_LISTEN"] = startDoctorSSH(t, values, "dev")
+		values["SSHDEV_PASSWORD"] = "wrong"
+		if report, err := runDoctorBinary(t, binary, dir, values); err == nil || report["authenticationVerified"] != false {
+			t.Fatalf("错误密码没有拒绝: %v (%v)", report, err)
+		}
+	})
+	t.Run("授权文件不存在", func(t *testing.T) {
+		dir, values := doctorFixture(t)
+		values["SSHDEV_LISTEN"] = startDoctorSSH(t, values, "dev")
+		values["SSHDEV_AUTHORIZED_KEYS_FILES"] = filepath.Join(dir, "missing_keys")
+		if report, err := runDoctorBinary(t, binary, dir, values); err == nil || report["authorizedKeysValid"] != false {
+			t.Fatalf("不可读授权文件没有拒绝: %v (%v)", report, err)
 		}
 	})
 }
