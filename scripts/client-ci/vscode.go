@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -95,7 +96,8 @@ func (f *fixture) vscode(ctx context.Context, executable string) error {
 			if e = json.Unmarshal(data, &proof); e != nil {
 				return e
 			}
-			if !proof.OK || proof.RemoteName != "ssh-remote" || !strings.HasPrefix(proof.URI, "vscode-remote://ssh-remote+") || proof.EditorText != "EDITOR_AFTER" || proof.TerminalMarker != "SSHDEV_TERMINAL_OK" {
+			remoteURI, uriErr := url.Parse(proof.URI)
+			if !proof.OK || proof.RemoteName != "ssh-remote" || uriErr != nil || remoteURI.Scheme != "vscode-remote" || remoteURI.Host != "ssh-remote+sshdev-ci" || proof.EditorText != "EDITOR_AFTER" || proof.TerminalMarker != "SSHDEV_TERMINAL_OK" {
 				return fmt.Errorf("VS Code 真实客户端验收失败: %s", data)
 			}
 			return nil
