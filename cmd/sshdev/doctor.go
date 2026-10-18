@@ -109,11 +109,12 @@ func (c *CmdDoctor) Run() error {
 	if c.Timeout <= 0 {
 		return fmt.Errorf("超时必须大于零")
 	}
-	conn, dialErr := net.DialTimeout("tcp", addr, c.Timeout)
+	deadline := time.Now().Add(c.Timeout)
+	conn, dialErr := net.DialTimeout("tcp", addr, time.Until(deadline))
 	checks["listening"] = dialErr == nil
 	if dialErr == nil {
 		defer conn.Close()
-		conn.SetDeadline(time.Now().Add(c.Timeout))
+		conn.SetDeadline(deadline)
 		transport, banner, readErr := readSSHVersion(conn)
 		if readErr == nil && signer != nil {
 			checks["runningVersion"] = strings.TrimPrefix(banner, "SSH-2.0-sshdev_")

@@ -10,7 +10,9 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -75,6 +77,16 @@ func newFixture(ctx context.Context, mode, binary string) (*fixture, error) {
 	}
 	if err = os.WriteFile(f.key, key, 0600); err != nil {
 		return nil, err
+	}
+	if runtime.GOOS == "windows" {
+		// Windows 忽略 Unix mode 位，显式移除继承权限并只允许当前用户读取私钥。
+		current, e := user.Current()
+		if e != nil {
+			return nil, e
+		}
+		if output, e := exec.CommandContext(ctx, "icacls", f.key, "/inheritance:r", "/grant:r", "*"+current.Uid+":R").CombinedOutput(); e != nil {
+			return nil, fmt.Errorf("设置私钥权限: %w: %s", e, output)
+		}
 	}
 	_, port, _ := net.SplitHostPort(f.addr)
 	known := filepath.Join(root, "known_hosts")
