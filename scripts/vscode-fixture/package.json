@@ -1,0 +1,13 @@
+{
+  "name": "sshdev-vscode-acceptance",
+  "publisher": "sshdev-ci",
+  "version": "0.0.1",
+  "private": true,
+  "engines": {"vscode": "^1.105.0"},
+  "main": "./out/extension.js",
+  "activationEvents": ["onStartupFinished"],
+  "extensionKind": ["ui"],
+  "capabilities": {"untrustedWorkspaces": {"supported": true}},
+  "scripts": {"build": "tsc -p ."},
+  "devDependencies": {"@types/node": "22.18.10", "@types/vscode": "1.105.0", "typescript": "5.9.3"}
+}

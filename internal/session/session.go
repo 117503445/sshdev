@@ -147,6 +147,11 @@ func HandleSession(ctx context.Context, newChannel ssh.NewChannel, cfg *types.Co
 				if e = server.Serve(); e != nil && e != io.EOF {
 					log.Ctx(ctx).Debug().Err(e).Msg("SFTP 会话结束")
 				}
+				var status uint32
+				if e != nil && e != io.EOF {
+					status = 1
+				}
+				_, _ = ch.SendRequest("exit-status", false, ssh.Marshal(struct{ Code uint32 }{status}))
 				server.Close()
 				return
 			}

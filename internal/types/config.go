@@ -11,6 +11,7 @@ import (
 
 // Config holds the server configuration
 type Config struct {
+	Version              string // SSH 握手中公布的应用版本。
 	ListenAddr           string
 	HostKeyPath          string // Path to host key file (command line arg)
 	HostKeyContent       string // Host key content (from env SSHDEV_HOST_KEY)

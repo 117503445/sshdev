@@ -9,14 +9,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
-	"time"
 
-	"github.com/117503445/sshdev/pkg/sshlib"
 	"github.com/joho/godotenv"
 	"github.com/kardianos/service"
 	"github.com/rs/zerolog/log"
@@ -31,6 +27,7 @@ type ServiceOptions struct {
 
 // CmdInstall 安装并启动系统服务，认证配置必须预先写入 .env。
 type CmdInstall struct {
+	ConfigOptions  `embed:""`
 	ServiceOptions `embed:""`
 }
 
@@ -41,11 +38,6 @@ type CmdUninstall struct {
 
 // CmdStatus 输出结构化服务状态。
 type CmdStatus struct {
-	ServiceOptions `embed:""`
-}
-
-// CmdDoctor 检查配置、认证、shell、主机身份及监听状态。
-type CmdDoctor struct {
 	ServiceOptions `embed:""`
 }
 
@@ -131,14 +123,19 @@ func (c *CmdInstall) Run() error {
 	if err != nil {
 		return err
 	}
-	values, err := godotenv.Read(filepath.Join(dir, ".env"))
+	values, environment, err := serviceValues(filepath.Join(dir, ".env"))
 	if err != nil {
-		return fmt.Errorf("请先在 %s 配置认证: %w", filepath.Join(dir, ".env"), err)
+		return fmt.Errorf("读取服务配置失败: %w", err)
 	}
-	if values["SSHDEV_PASSWORD"] == "" && values["SSHDEV_AUTHORIZED_KEYS"] == "" && values["SSHDEV_AUTHORIZED_KEYS_FILES"] == "" {
+	resolved, err := resolveConfig(c.ConfigOptions, environment)
+	if err != nil {
+		return err
+	}
+	cfg := resolved.Config
+	if !cfg.HasPasswordAuth() && !cfg.HasPublicKeyAuth() {
 		return fmt.Errorf("安装常驻服务必须配置密码或公钥")
 	}
-	cfg := &sshlib.Config{Password: values["SSHDEV_PASSWORD"], AuthorizedKeys: values["SSHDEV_AUTHORIZED_KEYS"], AuthorizedKeysFiles: values["SSHDEV_AUTHORIZED_KEYS_FILES"], Shell: values["SSHDEV_SHELL"]}
+	cfg.Insecure = false
 	if err = cfg.Validate(context.Background()); err != nil {
 		return err
 	}
@@ -158,14 +155,14 @@ func (c *CmdInstall) Run() error {
 	if err = secureFile(filepath.Join(dir, ".env")); err != nil {
 		return err
 	}
-	keyPath := values["SSHDEV_HOST_KEY_PATH"]
-	if values["SSHDEV_HOST_KEY_BUILTIN"] != "" {
+	keyPath := cfg.HostKeyPath
+	if cfg.HostKeyBuiltin {
 		return fmt.Errorf("常驻服务请使用独有主机密钥，不能使用内置共用私钥")
 	}
-	if values["SSHDEV_HOST_KEY"] == "" {
+	if cfg.HostKeyContent == "" {
 		if keyPath == "" {
 			keyPath = filepath.Join(dir, "host_key")
-			values["SSHDEV_HOST_KEY_PATH"] = keyPath
+			cfg.HostKeyPath = keyPath
 		}
 		if !filepath.IsAbs(keyPath) {
 			return fmt.Errorf("服务主机密钥路径必须为绝对路径")
@@ -174,7 +171,7 @@ func (c *CmdInstall) Run() error {
 			return err
 		}
 	}
-	values["SSHDEV_INSECURE"] = "false"
+	persistConfig(values, resolved)
 	if err = godotenv.Write(values, filepath.Join(dir, ".env")); err != nil {
 		return err
 	}
@@ -208,7 +205,7 @@ func (c *CmdInstall) Run() error {
 	if err = svc.Install(); err != nil {
 		return err
 	}
-	listen := values["SSHDEV_LISTEN"]
+	listen := cfg.ListenAddr
 	if listen == "" {
 		listen = "0.0.0.0:2222"
 	}
@@ -265,58 +262,6 @@ func (c *CmdStatus) Run() error {
 	}
 	dir, _ := c.directory()
 	return json.NewEncoder(os.Stdout).Encode(map[string]string{"name": c.Name, "status": status, "configDir": dir, "version": Version})
-}
-
-// Run 自检指定目录中的 .env、认证、shell、主机密钥和本地 SSH 监听。
-func (c *CmdDoctor) Run() error {
-	dir, err := c.directory()
-	if err != nil {
-		return err
-	}
-	values, err := godotenv.Read(filepath.Join(dir, ".env"))
-	if err != nil {
-		return err
-	}
-	checks := map[string]any{"configDir": dir, "authentication": values["SSHDEV_PASSWORD"] != "" || values["SSHDEV_AUTHORIZED_KEYS"] != "" || values["SSHDEV_AUTHORIZED_KEYS_FILES"] != ""}
-	shell := values["SSHDEV_SHELL"]
-	if shell == "" {
-		shell = defaultShell(context.Background())
-	}
-	_, shellErr := exec.LookPath(shell)
-	checks["shell"] = shell
-	checks["shellAvailable"] = shellErr == nil
-	key := []byte(values["SSHDEV_HOST_KEY"])
-	if len(key) == 0 {
-		key, err = os.ReadFile(values["SSHDEV_HOST_KEY_PATH"])
-	}
-	var signer ssh.Signer
-	if err == nil {
-		signer, err = ssh.ParsePrivateKey(key)
-	}
-	checks["hostKeyValid"] = err == nil
-	if err == nil {
-		checks["hostFingerprint"] = ssh.FingerprintSHA256(signer.PublicKey())
-	}
-	addr := values["SSHDEV_LISTEN"]
-	if addr == "" {
-		addr = "127.0.0.1:2222"
-	}
-	host, port, e := net.SplitHostPort(addr)
-	if e == nil && (host == "" || host == "0.0.0.0" || host == "::") {
-		addr = net.JoinHostPort("127.0.0.1", port)
-	}
-	conn, dialErr := net.DialTimeout("tcp", addr, time.Second)
-	if dialErr == nil {
-		conn.Close()
-	}
-	checks["listening"] = dialErr == nil
-	if err = json.NewEncoder(os.Stdout).Encode(checks); err != nil {
-		return err
-	}
-	if checks["authentication"] != true || checks["shellAvailable"] != true || checks["hostKeyValid"] != true || dialErr != nil {
-		return fmt.Errorf("自检未通过，详见检查结果")
-	}
-	return nil
 }
 
 // ensureHostKey 在 path 首次生成独有密钥，已存在时严格验证而不覆盖。
