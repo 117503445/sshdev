@@ -47,7 +47,7 @@ sshdev uninstall --config-dir <配置目录>
 
 - Ubuntu、Windows、macOS 15 原生 runner 运行竞态检测、SSH/SFTP/PTY/信号及转发测试；使用实际 OpenSSH `ssh`、`sftp`、`scp` 验证退出码、独立错误输出、中文和空格路径、传输校验及双向端口转发。
 - Windows 使用真实 WinSCP 6.5.3 执行 SFTP 目录、上传下载、重命名和删除。
-- Ubuntu 使用真实 VS Code 1.105.1 与 Remote SSH 0.120.0，验证远程文件创建、编辑保存和集成终端，保留结果、日志及 Electron 窗口截图。
+- Ubuntu 使用真实 VS Code 1.107.1 与 Remote SSH 0.120.0，验证远程文件创建、编辑保存和集成终端，保留结果、日志及 Electron 窗口截图。该编辑器版本包含上游扩展安装 CLI 崩溃修复（microsoft/vscode#279806）。
 - Ubuntu、Windows 验证系统服务安装、自启、密码与公钥登录、错误认证拒绝、自检、杀进程恢复和卸载。系统服务测试仅在 `SSHDEV_SERVICE_TEST=1` 的隔离 CI 中执行；macOS 当前覆盖运行与客户端，不覆盖 launchd 安装。
 
 CI 使用独占回环服务和临时凭据，不连接现有设备；制品仅保存客户端日志与编辑器证据，不上传 `.env` 或私钥。

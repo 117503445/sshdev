@@ -82,10 +82,10 @@ jobs:
           npm ci --prefix scripts/vscode-fixture
           npm run build --prefix scripts/vscode-fixture
           npm install -g agent-browser@0.38.1
-      - name: Download fixed VS Code 1.105.1
+      - name: Download fixed VS Code 1.107.1
         run: |
           mkdir -p data/vscode
-          curl --fail --location https://update.code.visualstudio.com/1.105.1/linux-x64/stable --output data/vscode.tar.gz
+          curl --fail --location https://update.code.visualstudio.com/1.107.1/linux-x64/stable --output data/vscode.tar.gz
           tar -xzf data/vscode.tar.gz --strip-components=1 -C data/vscode
       - name: Verify real Remote SSH files, editor and terminal
         run: xvfb-run -a go run ./scripts/client-ci -client vscode -binary data/sshdev -code data/vscode/bin/code
