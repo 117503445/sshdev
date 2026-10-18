@@ -14,6 +14,7 @@ import (
 
 	"github.com/117503445/sshdev/pkg/sshlib"
 	"github.com/joho/godotenv"
+	"golang.org/x/crypto/ssh"
 )
 
 // doctorFixture 为 t 建立独立配置与主机密钥，返回目录和配置变量。
@@ -36,7 +37,7 @@ func startDoctorSSH(t *testing.T, values map[string]string, version string) stri
 	}
 	addr := listener.Addr().String()
 	listener.Close()
-	server, err := sshlib.NewServer(context.Background(), &sshlib.Config{ListenAddr: addr, HostKeyPath: values["SSHDEV_HOST_KEY_PATH"], Password: values["SSHDEV_PASSWORD"], Version: version})
+	server, err := sshlib.NewServer(context.Background(), &sshlib.Config{ListenAddr: addr, HostKeyPath: values["SSHDEV_HOST_KEY_PATH"], Password: values["SSHDEV_PASSWORD"], AuthorizedKeys: values["SSHDEV_AUTHORIZED_KEYS"], Version: version})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,13 +61,13 @@ func startDoctorSSH(t *testing.T, values map[string]string, version string) stri
 	return ""
 }
 
-// runDoctorBinary 调用 binary 对 dir 自检，并返回 JSON 结果和执行错误；t 为测试上下文。
-func runDoctorBinary(t *testing.T, binary, dir string, values map[string]string) (map[string]any, error) {
+// runDoctorBinary 调用 binary 对 dir 和 values 自检，args 为附加参数；t 为测试上下文，返回 JSON 结果和执行错误。
+func runDoctorBinary(t *testing.T, binary, dir string, values map[string]string, args ...string) (map[string]any, error) {
 	t.Helper()
 	if err := godotenv.Write(values, filepath.Join(dir, ".env")); err != nil {
 		t.Fatal(err)
 	}
-	output, err := exec.Command(binary, "doctor", "--config-dir", dir).CombinedOutput()
+	output, err := exec.Command(binary, append([]string{"doctor", "--config-dir", dir}, args...)...).CombinedOutput()
 	var report map[string]any
 	if e := json.NewDecoder(bytes.NewReader(output)).Decode(&report); e != nil {
 		t.Fatalf("诊断结果不是JSON: %s (%v)", output, e)
@@ -147,6 +148,30 @@ func TestDoctorProtocol(t *testing.T) {
 		values["SSHDEV_AUTHORIZED_KEYS_FILES"] = filepath.Join(dir, "missing_keys")
 		if report, err := runDoctorBinary(t, binary, dir, values); err == nil || report["authorizedKeysValid"] != false {
 			t.Fatalf("不可读授权文件没有拒绝: %v (%v)", report, err)
+		}
+	})
+	t.Run("公钥认证", func(t *testing.T) {
+		dir, values := doctorFixture(t)
+		delete(values, "SSHDEV_PASSWORD")
+		private, err := os.ReadFile(values["SSHDEV_HOST_KEY_PATH"])
+		if err != nil {
+			t.Fatal(err)
+		}
+		signer, err := ssh.ParsePrivateKey(private)
+		if err != nil {
+			t.Fatal(err)
+		}
+		values["SSHDEV_AUTHORIZED_KEYS"] = string(ssh.MarshalAuthorizedKey(signer.PublicKey()))
+		values["SSHDEV_LISTEN"] = startDoctorSSH(t, values, "dev")
+		if report, err := runDoctorBinary(t, binary, dir, values); err != nil || report["sshVerified"] != true || report["authenticationVerified"] != false {
+			t.Fatalf("仅公钥配置握手检查失败: %v (%v)", report, err)
+		}
+		if report, err := runDoctorBinary(t, binary, dir, values, "--identity", values["SSHDEV_HOST_KEY_PATH"]); err != nil || report["authenticationVerified"] != true {
+			t.Fatalf("公钥登录检查失败: %v (%v)", report, err)
+		}
+		_, other := doctorFixture(t)
+		if report, err := runDoctorBinary(t, binary, dir, values, "--identity", other["SSHDEV_HOST_KEY_PATH"]); err == nil || report["authenticationVerified"] != false {
+			t.Fatalf("未授权私钥没有拒绝: %v (%v)", report, err)
 		}
 	})
 }
