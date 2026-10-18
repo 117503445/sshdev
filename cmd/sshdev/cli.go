@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"github.com/117503445/sshdev/internal/types"
 	"github.com/kardianos/service"
@@ -27,34 +26,11 @@ var cli struct {
 	Doctor    CmdDoctor    `cmd:"" help:"检查配置和监听状态"`
 }
 
+// CmdRun 配置前台运行或系统服务运行。
 type CmdRun struct {
-	EnvFile             string `name:"env-file" help:"启动时加载的 .env 文件"`
-	ServiceName         string `name:"service-name" hidden:""`
-	ListenAddr          string `name:"listen" help:"listen address" default:"0.0.0.0:2222" env:"SSHDEV_LISTEN"`
-	HostKeyPath         string `name:"host-key" help:"host key file path" env:"SSHDEV_HOST_KEY_PATH"`
-	HostKeyContent      string `name:"host-key-content" help:"host key content (PEM format)" env:"SSHDEV_HOST_KEY"`
-	HostKeyBuiltin      bool   `name:"host-key-builtin" help:"use built-in host key" env:"SSHDEV_HOST_KEY_BUILTIN"`
-	Password            string `name:"password" help:"password for authentication" env:"SSHDEV_PASSWORD"`
-	AuthorizedKeysFiles string `name:"authorized-keys-files" help:"authorized keys file paths (colon-separated)" env:"SSHDEV_AUTHORIZED_KEYS_FILES"`
-	AuthorizedKeys      string `name:"authorized-keys" help:"authorized keys content (newline-separated)" env:"SSHDEV_AUTHORIZED_KEYS"`
-	Insecure            bool   `name:"insecure" help:"allow no-auth mode when password and public key auth are not configured" env:"SSHDEV_INSECURE"`
-	Shell               string `name:"shell" help:"default shell (empty = current user's default)" env:"SSHDEV_SHELL"`
-	ConfigJSON          string `name:"config-json" help:"JSON configuration" env:"SSHDEV_CONFIG_JSON"`
-	Pinggy              bool   `name:"pinggy" help:"expose SSH server through a temporary anonymous Pinggy TCP tunnel" env:"SSHDEV_PINGGY"`
-}
-
-// JSONConfig 表示 JSON 配置结构。
-type JSONConfig struct {
-	ListenAddr          string `json:"listenAddr"`
-	HostKeyPath         string `json:"hostKeyPath"`
-	HostKeyContent      string `json:"hostKeyContent"`
-	HostKeyBuiltin      bool   `json:"hostKeyBuiltin"`
-	Password            string `json:"password"`
-	AuthorizedKeysFiles string `json:"authorizedKeysFiles"`
-	AuthorizedKeys      string `json:"authorizedKeys"`
-	Insecure            bool   `json:"insecure"`
-	Shell               string `json:"shell"`
-	Pinggy              bool   `json:"pinggy"`
+	ConfigOptions `embed:""`
+	EnvFile       string `name:"env-file" help:"启动时加载的 .env 文件"`
+	ServiceName   string `name:"service-name" hidden:""`
 }
 
 func (cmd *CmdRun) Run() error {
@@ -76,34 +52,12 @@ func (cmd *CmdRun) run(ctx context.Context) error {
 	ctx = log.Logger.WithContext(ctx)
 	log.Ctx(ctx).Info().Msg("CmdRun.Run() called, initializing configuration")
 
-	cfg := &sshlib.Config{}
-	var enablePinggy bool
-
-	// 优先尝试从 JSON 配置加载。
-	if cmd.ConfigJSON != "" {
-		log.Ctx(ctx).Info().Msg("Loading configuration from JSON")
-		var jsonCfg JSONConfig
-		if err := json.Unmarshal([]byte(cmd.ConfigJSON), &jsonCfg); err != nil {
-			log.Ctx(ctx).Warn().Err(err).Msg("failed to parse SSHDEV_CONFIG_JSON, ignoring")
-		} else {
-			applyJSONConfig(cfg, &jsonCfg)
-			enablePinggy = jsonCfg.Pinggy
-			log.Ctx(ctx).Info().Msg("JSON configuration applied")
-		}
+	resolved, err := resolveConfig(cmd.ConfigOptions, environmentValues())
+	if err != nil {
+		return err
 	}
-
-	// 然后应用命令行和环境变量覆盖项。
-	applyCLIConfig(cfg, cmd)
-	if cmd.Pinggy {
-		enablePinggy = true
-	}
-	log.Ctx(ctx).Info().Msg("CLI configuration applied")
-
-	// 未显式配置 shell 时按当前系统选择默认值。
-	if cfg.Shell == "" {
-		cfg.Shell = defaultShell(ctx)
-	}
-
+	cfg := resolved.Config
+	enablePinggy := resolved.Pinggy
 	log.Ctx(ctx).Info().
 		Str("shell", cfg.Shell).
 		Str("listenAddr", cfg.ListenAddr).
@@ -157,68 +111,6 @@ func (cmd *CmdRun) run(ctx context.Context) error {
 		_ = pinggyCmd.Process.Kill()
 	}
 	return err
-}
-
-// applyJSONConfig 将 JSON 配置应用到配置对象。
-func applyJSONConfig(cfg *sshlib.Config, jsonCfg *JSONConfig) {
-	if jsonCfg.ListenAddr != "" {
-		cfg.ListenAddr = jsonCfg.ListenAddr
-	}
-	if jsonCfg.HostKeyPath != "" {
-		cfg.HostKeyPath = jsonCfg.HostKeyPath
-	}
-	if jsonCfg.HostKeyContent != "" {
-		cfg.HostKeyContent = jsonCfg.HostKeyContent
-	}
-	if jsonCfg.HostKeyBuiltin {
-		cfg.HostKeyBuiltin = jsonCfg.HostKeyBuiltin
-	}
-	if jsonCfg.Password != "" {
-		cfg.Password = jsonCfg.Password
-	}
-	if jsonCfg.AuthorizedKeysFiles != "" {
-		cfg.AuthorizedKeysFiles = jsonCfg.AuthorizedKeysFiles
-	}
-	if jsonCfg.AuthorizedKeys != "" {
-		cfg.AuthorizedKeys = jsonCfg.AuthorizedKeys
-	}
-	if jsonCfg.Insecure {
-		cfg.Insecure = jsonCfg.Insecure
-	}
-	if jsonCfg.Shell != "" {
-		cfg.Shell = jsonCfg.Shell
-	}
-}
-
-// applyCLIConfig 将命令行和环境变量配置应用到配置对象。
-func applyCLIConfig(cfg *sshlib.Config, cmd *CmdRun) {
-	if cmd.ListenAddr != "" {
-		cfg.ListenAddr = cmd.ListenAddr
-	}
-	if cmd.HostKeyPath != "" {
-		cfg.HostKeyPath = cmd.HostKeyPath
-	}
-	if cmd.HostKeyContent != "" {
-		cfg.HostKeyContent = cmd.HostKeyContent
-	}
-	if cmd.HostKeyBuiltin {
-		cfg.HostKeyBuiltin = cmd.HostKeyBuiltin
-	}
-	if cmd.Password != "" {
-		cfg.Password = cmd.Password
-	}
-	if cmd.AuthorizedKeysFiles != "" {
-		cfg.AuthorizedKeysFiles = cmd.AuthorizedKeysFiles
-	}
-	if cmd.AuthorizedKeys != "" {
-		cfg.AuthorizedKeys = cmd.AuthorizedKeys
-	}
-	if cmd.Insecure {
-		cfg.Insecure = cmd.Insecure
-	}
-	if cmd.Shell != "" {
-		cfg.Shell = cmd.Shell
-	}
 }
 
 // defaultShell 按当前操作系统返回默认 shell。

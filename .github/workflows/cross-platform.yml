@@ -14,7 +14,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest, macos-15]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     steps:
@@ -34,7 +34,16 @@ jobs:
         run: go build -o data/sshdev.exe ./cmd/sshdev
       - name: Test CLI configuration and diagnostics
         shell: bash
-        run: SSHDEV_TEST_BINARY="$PWD/data/sshdev.exe" go test ./cmd/sshdev -run 'TestCLIConfigFile|TestDoctorInvalidConfig' -v -count=1
+        run: SSHDEV_TEST_BINARY="$PWD/data/sshdev.exe" go test ./cmd/sshdev -run 'TestCLIConfigFile|TestDoctorInvalidConfig|TestDoctorProtocol' -v -count=1
+      - name: Test real OpenSSH ssh, sftp, scp and forwarding
+        run: go run ./scripts/client-ci -client openssh -binary data/sshdev.exe
+      - name: Install WinSCP 6.5.3
+        if: runner.os == 'Windows'
+        run: choco install winscp --version=6.5.3 --yes --no-progress --force --allow-downgrade
+      - name: Test real WinSCP file operations
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: go run ./scripts/client-ci -client winscp -binary data/sshdev.exe -winscp 'C:\Program Files (x86)\WinSCP\WinSCP.com'
       - name: Test Linux service installation and automatic recovery
         if: runner.os == 'Linux'
         shell: bash
@@ -46,3 +55,47 @@ jobs:
           $env:SSHDEV_SERVICE_TEST = '1'
           $env:SSHDEV_TEST_BINARY = "$pwd/data/sshdev.exe"
           go test ./cmd/sshdev -run '^TestServiceLifecycle$' -v -count=1 -timeout=240s
+      - name: Preserve client evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: clients-${{ matrix.os }}
+          path: data/client-ci/**/*.log
+
+  vscode:
+    name: VS Code Remote SSH actual workspace
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: scripts/vscode-fixture/package-lock.json
+      - name: Build CLI and real editor fixture
+        run: |
+          go build -o data/sshdev ./cmd/sshdev
+          npm ci --prefix scripts/vscode-fixture
+          npm run build --prefix scripts/vscode-fixture
+          npm install -g agent-browser@0.38.1
+      - name: Download fixed VS Code 1.105.1
+        run: |
+          mkdir -p data/vscode
+          curl --fail --location https://update.code.visualstudio.com/1.105.1/linux-x64/stable --output data/vscode.tar.gz
+          tar -xzf data/vscode.tar.gz --strip-components=1 -C data/vscode
+      - name: Verify real Remote SSH files, editor and terminal
+        run: xvfb-run -a go run ./scripts/client-ci -client vscode -binary data/sshdev -code data/vscode/bin/code
+      - name: Preserve real editor evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vscode-remote-ssh
+          path: |
+            data/client-ci/vscode/**/*.log
+            data/client-ci/vscode/window.png
+            data/client-ci/vscode/result.json
+            data/client-ci/vscode/code-user/logs/**

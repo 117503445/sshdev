@@ -22,6 +22,7 @@ type internalServer struct {
 // newServer creates a new server with internal implementation
 func newServer(ctx context.Context, cfg *Config) (Server, error) {
 	internalCfg := &types.Config{
+		Version:              cfg.Version,
 		ListenAddr:           cfg.ListenAddr,
 		HostKeyPath:          cfg.HostKeyPath,
 		HostKeyContent:       cfg.HostKeyContent,

@@ -65,7 +65,16 @@ func NewServer(ctx context.Context, cfg *types.Config) (*Server, error) {
 	log.Ctx(ctx).Info().Msg("Authenticator created")
 
 	// Create SSH server config
-	s.sshCfg = &ssh.ServerConfig{}
+	version := cfg.Version
+	if version == "" {
+		version = "dev"
+	}
+	for _, ch := range version {
+		if ch <= 32 || ch >= 127 {
+			return nil, fmt.Errorf("版本号包含非法字符")
+		}
+	}
+	s.sshCfg = &ssh.ServerConfig{ServerVersion: "SSH-2.0-sshdev_" + version}
 	s.sshCfg.AddHostKey(hostKey)
 
 	// Set up authentication callbacks
