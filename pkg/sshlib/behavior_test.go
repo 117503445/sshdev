@@ -553,3 +553,41 @@ func TestPTYDisconnectCleanup(t *testing.T) {
 		t.Fatal("PTY 断线后服务停止被阻塞")
 	}
 }
+
+// TestSFTPExitStatus 验证真实 scp 所依赖的 SFTP 子系统退出码；t 为测试上下文。
+func TestSFTPExitStatus(t *testing.T) {
+	_, client, _ := behaviorServer(t)
+	channel, requests, err := client.OpenChannel("session", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer channel.Close()
+	if ok, err := channel.SendRequest("subsystem", true, ssh.Marshal(struct{ Name string }{"sftp"})); err != nil || !ok {
+		t.Fatalf("启动SFTP: %v", err)
+	}
+	fileClient, err := sftp.NewClientPipe(channel, channel)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fileClient.Close()
+	channel.CloseWrite()
+	timer := time.NewTimer(3 * time.Second)
+	defer timer.Stop()
+	for {
+		select {
+		case request, ok := <-requests:
+			if !ok {
+				t.Fatal("缺少SFTP退出码")
+			}
+			if request.Type == "exit-status" {
+				var status struct{ Code uint32 }
+				if err := ssh.Unmarshal(request.Payload, &status); err != nil || status.Code != 0 {
+					t.Fatalf("退出码无效: %v %v", status, err)
+				}
+				return
+			}
+		case <-timer.C:
+			t.Fatal("未收到SFTP退出码")
+		}
+	}
+}

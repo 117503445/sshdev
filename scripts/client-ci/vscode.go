@@ -36,10 +36,7 @@ func (f *fixture) vscode(ctx context.Context, executable string) error {
 	if err = os.WriteFile(filepath.Join(profile, "User", "settings.json"), settingsBytes, 0600); err != nil {
 		return err
 	}
-	base := []string{"--user-data-dir", profile, "--extensions-dir", extensions, "--disable-workspace-trust"}
-	if os.Geteuid() == 0 {
-		base = append(base, "--no-sandbox")
-	}
+	base := []string{"--user-data-dir", profile, "--extensions-dir", extensions, "--disable-workspace-trust", "--no-sandbox", "--disable-gpu"}
 	if _, err = f.execute(ctx, code, append(append([]string{}, base...), "--install-extension", "ms-vscode-remote.remote-ssh@0.120.0", "--force")...); err != nil {
 		return err
 	}
@@ -55,7 +52,7 @@ func (f *fixture) vscode(ctx context.Context, executable string) error {
 	}
 	_, port, _ := net.SplitHostPort(addr)
 	session := "sshdev-vscode-" + strconv.Itoa(os.Getpid())
-	args := append(append([]string{}, base...), "--new-window", "--wait", "--remote-debugging-port="+port, "--extensionDevelopmentPath="+fixturePath, "--remote", "ssh-remote+sshdev-ci", workspace)
+	args := append(append([]string{}, base...), "--new-window", "--wait", "--verbose", "--remote-debugging-port="+port, "--extensionDevelopmentPath="+fixturePath, "--remote", "ssh-remote+sshdev-ci", workspace)
 	log, err := os.Create(filepath.Join(f.root, "vscode.log"))
 	if err != nil {
 		return err
@@ -106,7 +103,9 @@ func (f *fixture) vscode(ctx context.Context, executable string) error {
 		select {
 		case e := <-done:
 			done = nil
-			return fmt.Errorf("VS Code 提前退出: %v", e)
+			if e != nil {
+				return fmt.Errorf("VS Code 启动器失败: %v", e)
+			}
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-time.After(200 * time.Millisecond):
