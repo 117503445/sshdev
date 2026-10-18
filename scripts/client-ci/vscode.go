@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -90,14 +89,15 @@ func (f *fixture) vscode(ctx context.Context, executable string) error {
 				Error          string `json:"error"`
 				RemoteName     string `json:"remoteName"`
 				URI            string `json:"uri"`
+				Scheme         string `json:"scheme"`
+				Authority      string `json:"authority"`
 				EditorText     string `json:"editorText"`
 				TerminalMarker string `json:"terminalMarker"`
 			}
 			if e = json.Unmarshal(data, &proof); e != nil {
 				return e
 			}
-			remoteURI, uriErr := url.Parse(proof.URI)
-			if !proof.OK || proof.RemoteName != "ssh-remote" || uriErr != nil || remoteURI.Scheme != "vscode-remote" || remoteURI.Host != "ssh-remote+sshdev-ci" || proof.EditorText != "EDITOR_AFTER" || proof.TerminalMarker != "SSHDEV_TERMINAL_OK" {
+			if !proof.OK || proof.RemoteName != "ssh-remote" || proof.Scheme != "vscode-remote" || proof.Authority != "ssh-remote+sshdev-ci" || proof.EditorText != "EDITOR_AFTER" || proof.TerminalMarker != "SSHDEV_TERMINAL_OK" {
 				return fmt.Errorf("VS Code 真实客户端验收失败: %s", data)
 			}
 			return nil

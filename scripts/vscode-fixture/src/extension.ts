@@ -50,5 +50,5 @@ async function verify(context: vscode.ExtensionContext): Promise<void> {
     await delay(200);
   }
   if (terminalText !== 'SSHDEV_TERMINAL_OK') throw new Error('远程集成终端未执行命令');
-  fs.writeFileSync(result, JSON.stringify({ok: true, remoteName: vscode.env.remoteName, uri: folder.uri.toString(), editorText: text, terminalMarker: terminalText}));
+  fs.writeFileSync(result, JSON.stringify({ok: true, remoteName: vscode.env.remoteName, uri: folder.uri.toString(), scheme: folder.uri.scheme, authority: folder.uri.authority, editorText: text, terminalMarker: terminalText}));
 }
